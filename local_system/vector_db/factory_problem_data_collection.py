@@ -5,8 +5,14 @@ import re
 from langchain.schema import Document
 from chromadb_wrapper import ChromaDBWrapper
 
+
 class KeywordFilteredPDFExtractor:
-    def __init__(self, pdf_folder, json_path="filtered_data.json", chroma_dir="./chroma_db_filtered"):
+    def __init__(
+        self,
+        pdf_folder,
+        json_path="filtered_data.json",
+        chroma_dir="./chroma_db_filtered",
+    ):
         self.pdf_folder = pdf_folder
         self.json_path = json_path
         self.db = ChromaDBWrapper(chroma_dir)
@@ -15,18 +21,22 @@ class KeywordFilteredPDFExtractor:
 
     def clean_text(self, text):
         # 줄바꿈과 공백 정리
-        text = re.sub(r'\s+', ' ', text).strip()
+        text = re.sub(r"\s+", " ", text).strip()
         return text
 
     def filter_by_keywords(self, text):
-        sentences = re.split(r'(?<=[.?!])\s+', text)
-        filtered_sentences = [sentence for sentence in sentences if any(keyword in sentence for keyword in self.keywords)]
-        return ' '.join(filtered_sentences)
+        sentences = re.split(r"(?<=[.?!])\s+", text)
+        filtered_sentences = [
+            sentence
+            for sentence in sentences
+            if any(keyword in sentence for keyword in self.keywords)
+        ]
+        return " ".join(filtered_sentences)
 
     def extract_text_from_pdf(self, pdf_path):
         try:
             with fitz.open(pdf_path) as doc:
-                text = ''.join(page.get_text() for page in doc)
+                text = "".join(page.get_text() for page in doc)
             return text
         except Exception as e:
             print(f"❌ PDF 추출 실패 ({pdf_path}): {e}")
@@ -53,7 +63,9 @@ class KeywordFilteredPDFExtractor:
 
     def save_to_chroma(self):
         documents = [
-            Document(page_content=item["text"], metadata={"file_name": item["file_name"]})
+            Document(
+                page_content=item["text"], metadata={"file_name": item["file_name"]}
+            )
             for item in self.data
         ]
         self.db.add_documents(documents)
@@ -63,6 +75,7 @@ class KeywordFilteredPDFExtractor:
         self.process_pdfs()
         self.save_json()
         self.save_to_chroma()
+
 
 # 실행 예시
 if __name__ == "__main__":
