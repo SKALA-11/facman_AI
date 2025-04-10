@@ -1,31 +1,43 @@
-# test_chatbot.py
+import base64
 from chatbot.chatbot import ChatBot
 
+def load_image_as_base64(path="problem.png"):
+    with open(path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
-# 테스트용 이벤트 객체 정의
-class DummyEvent:
-    def __init__(self, type, time, value):
-        self.type = type
-        self.time = time
-        self.value = value
+def test_solve_event():
+    gpt = ChatBot()
 
-# 더미 이벤트 생성
-event = DummyEvent(
-    type="전기",
-    time="2024-04-10 09:00",
-    value="서버실 전력 과부하"
-)
+    event = type("Event", (object,), {
+        "type": "전력 과부하",
+        "time": "2024-04-10 14:22",
+        "value": "서버실 장비 일부 꺼짐"
+    })()
 
-# 더미 이미지 (base64 없이 테스트)
-image_base64 = ""
+    image_base64 = load_image_as_base64("problem.png")
+    event_explain = "서버실 내 과도한 전력 사용으로 인해 일부 장비가 꺼진 상황입니다."
 
-# 문제 설명 텍스트
-event_explain = "서버실에서 전력 과부하로 인해 일부 장비가 꺼졌습니다. 원인을 분석하고 해결 방안을 제시해주세요."
+    result = gpt.solve_event(event, image_base64, event_explain)
+    print("\n📌 solve_event 결과:\n")
+    print(result)
 
-# 챗봇 호출
-gpt = ChatBot()
-response = gpt.solve_event(event, image_base64, event_explain)
+def test_make_report_content():
+    gpt = ChatBot()
 
-# 결과 출력
-print("\n💬 GPT 응답 결과:")
-print(response)
+    event = type("Event", (object,), {
+        "type": "전력 과부하",
+        "time": "2024-04-10 14:22",
+        "value": "서버실 장비 일부 꺼짐"
+    })()
+
+    image_base64 = load_image_as_base64("problem.png")
+    event_explain = "서버실 내 과도한 전력 사용으로 인해 일부 장비가 꺼진 상황입니다."
+    answer = "전력 분석과 회로 부하 분산 조치가 필요합니다."
+
+    report = gpt.make_report_content(event, image_base64, event_explain, answer)
+    print("\n📝 make_report_content 결과:\n")
+    print(report)
+
+if __name__ == "__main__":
+    test_solve_event()
+    test_make_report_content()
