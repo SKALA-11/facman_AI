@@ -1,7 +1,6 @@
 import uvicorn
 from fastapi import FastAPI
 from api import router
-from events import Event, EventGenerator, EventHandler
 
 
 class FacmanApplication:
@@ -10,15 +9,10 @@ class FacmanApplication:
         self.host = host
         self.port = port
 
-        self.event = Event()
-        self.event_generator = EventGenerator(self.event)
-        self.event_handler = EventHandler(self.event, self.event_generator)
-
         self._setup_routes()
 
     def _setup_routes(self):
         self.app.include_router(router)
 
     def start(self):
-        self.event_handler.start()
-        uvicorn.run(app=self.app, host=self.host, port=self.port, reload=False)
+        uvicorn.run(app=self.app, host=self.host, port=self.port)
