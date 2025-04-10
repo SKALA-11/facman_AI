@@ -11,7 +11,7 @@ import webrtcvad
 import threading
 from config import SAMPLE_RATE, DEFAULT_LANGUAGE, CLIENT
 from modules.audio import audio_queue
-from modules.utils import sanitize_language_code, update_display, get_log_filenames
+from modules.utils import sanitize_language_code, get_log_filenames
 
 # 전역 변수 (메인에서 관리하도록 할 수도 있음)
 detected_language = None
@@ -53,7 +53,7 @@ def detect_language(audio_path):
         print(f"언어 감지 오류: {e}", file=sys.stderr)
         return DEFAULT_LANGUAGE
 
-def stt_processing_thread(sentence_queue, recording_active, target_language, update_display_callback):
+def stt_processing_thread(sentence_queue, recording_active, target_language):
     global detected_language
     buffer = np.zeros((0, 1), dtype=np.float32)
     silence_threshold = 0.02
@@ -85,7 +85,7 @@ def stt_processing_thread(sentence_queue, recording_active, target_language, upd
                                     with language_lock:
                                         detected_language = lang_code
                                     language_detected_once = True
-                                    update_display_callback()
+
                             with language_lock:
                                 current_lang = detected_language if detected_language is not None else DEFAULT_LANGUAGE
                             with open(f.name, "rb") as audio_file:
