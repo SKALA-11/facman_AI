@@ -3,6 +3,7 @@
 import queue
 import openai
 from modules.utils import language_map, get_log_filenames
+from config import CLIENT
 import sys
 
 def translation_thread(sentence_queue, translation_queue, target_language):
@@ -23,7 +24,7 @@ def translation_thread(sentence_queue, translation_queue, target_language):
             try:
                 source_name = language_map.get(source_lang, "감지된 언어")
                 target_name = language_map.get(target_language, "영어")
-                response = openai.OpenAI().chat.completions.create(
+                response = CLIENT.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": f"Translate the following text from {source_name} to {target_name}. Only provide the translation without any additional explanation."},
