@@ -1,0 +1,380 @@
+<!-- <!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>STT & TTS 테스트</title>
+</head>
+<body>
+  <h1>🎤 STT 테스트</h1>
+  <button id="startBtn">녹음 시작</button>
+  <button id="stopBtn">녹음 중지</button>
+  <p id="status">상태: 준비됨</p>
+
+  <h2>🗣️ 변환된 텍스트</h2>
+  <div id="transcription">변환 대기 중...</div>
+
+  <h2>🌐 번역된 텍스트</h2>
+  <div id="translated">번역 대기 중...</div>
+  <button id="ttsTranslatedBtn">번역된 내용 읽기</button>
+
+  <script>
+    let ws;
+    let mediaRecorder;
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const status = document.getElementById("status");
+    const transcription = document.getElementById("transcription");
+    const translated = document.getElementById("translated");
+
+    startBtn.onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      ws = new WebSocket("ws://localhost:8000/ws/stt");
+
+      mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+          e.data.arrayBuffer().then(buffer => {
+            ws.send(buffer);
+          });
+        }
+      };
+
+      mediaRecorder.start(300);
+      status.innerText = "상태: 녹음 중...";
+    };
+
+    stopBtn.onclick = async () => {
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        ws.close();
+        status.innerText = "상태: 녹음 중지됨";
+
+        // 녹음 중지 후 번역된 결과 fetch
+        setTimeout(async () => {
+          const res = await fetch("/api/translated");
+          const data = await res.json();
+          translated.innerText = data.text || "번역 결과 없음";
+        }, 1000);
+      }
+    };
+
+    // 번역된 텍스트 읽기
+    const ttsTranslatedBtn = document.getElementById("ttsTranslatedBtn");
+
+    ttsTranslatedBtn.onclick = async () => {
+      const text = translated.innerText;
+      if (!text || text === "번역 대기 중..." || text === "번역 결과 없음") return;
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      new Audio(url).play();
+    };
+  </script>
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실시간 음성 번역 시스템</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    h1, h2 {
+      color: #333;
+    }
+    .container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .btn {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background-color 0.3s;
+    }
+    .btn:hover {
+      background-color: #45a049;
+    }
+    .btn-stop {
+      background-color: #f44336;
+    }
+    .btn-stop:hover {
+      background-color: #d32f2f;
+    }
+    .btn-play {
+      background-color: #2196F3;
+    }
+    .btn-play:hover {
+      background-color: #0b7dda;
+    }
+    .disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .text-box {
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 4px;
+      min-height: 60px;
+      margin-bottom: 10px;
+      background-color: #f9f9f9;
+    }
+    .status {
+      font-style: italic;
+      color: #666;
+    }
+    .recording {
+      color: #f44336;
+      font-weight: bold;
+    }
+    .record-btn-container {
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .record-indicator {
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background-color: #ccc;
+      margin-left: 10px;
+      display: inline-block;
+    }
+    .recording-active {
+      background-color: #f44336;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🌐 실시간 음성 번역 시스템</h1>
+  
+  <div class="container">
+    <h2>🎤 음성 인식</h2>
+    <div class="record-btn-container">
+      <button id="startBtn" class="btn">녹음 시작</button>
+      <button id="stopBtn" class="btn btn-stop" disabled>녹음 중지</button>
+      <span id="recordIndicator" class="record-indicator"></span>
+    </div>
+    <p id="status" class="status">상태: 준비됨</p>
+    
+    <h3>원본 텍스트 (한국어)</h3>
+    <div id="transcription" class="text-box">변환 대기 중...</div>
+    
+    <h3>번역된 텍스트 (영어)</h3>
+    <div id="translation" class="text-box">번역 대기 중...</div>
+    
+    <button id="ttsBtn" class="btn btn-play" disabled>번역된 내용 듣기</button>
+  </div>
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const status = document.getElementById('status');
+    const transcription = document.getElementById('transcription');
+    const translation = document.getElementById('translation');
+    const ttsBtn = document.getElementById('ttsBtn');
+    const recordIndicator = document.getElementById('recordIndicator');
+  
+    let mediaRecorder;
+    let audioChunks = [];
+    let ws;
+    let isRecording = false;
+    let stream;
+  
+    // 녹음 시작
+    startBtn.addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        ws = new WebSocket(`ws://${window.location.host}/ws/stt`);
+  
+        ws.onopen = () => {
+          console.log('WebSocket 연결됨');
+          status.textContent = '상태: WebSocket 연결됨';
+  
+          mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          audioChunks = [];
+  
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunks.push(event.data);
+            }
+          };
+  
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            audioChunks = [];
+  
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(audioBlob);
+            }
+  
+            // 마이크 종료 및 UI 상태 업데이트
+            stopRecording();
+  
+            // STT & TTS 처리 API 호출
+            const formData = new FormData();
+            formData.append('audio', audioBlob);
+  
+            fetch('/api/process-audio', {
+              method: 'POST',
+              body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+              console.log('처리 결과:', data);
+  
+              // 결과 반영
+              fetch('/api/transcription')
+                .then(response => response.json())
+                .then(data => {
+                  transcription.textContent = data.text || '변환 결과 없음';
+                });
+  
+              fetch('/api/translation')
+                .then(response => response.json())
+                .then(data => {
+                  translation.textContent = data.text || '번역 결과 없음';
+                  ttsBtn.disabled = !data.text;
+                });
+            })
+            .catch(error => {
+              console.error('오류:', error);
+            });
+          };
+  
+          mediaRecorder.start();
+          isRecording = true;
+          status.textContent = '상태: 녹음 중...';
+          status.classList.add('recording');
+          recordIndicator.classList.add('recording-active');
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+        };
+  
+        ws.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type === 'transcription') {
+            transcription.textContent = data.text || '변환 대기 중...';
+          } else if (data.type === 'translation') {
+            translation.textContent = data.text || '번역 대기 중...';
+            ttsBtn.disabled = !data.text;
+          }
+        };
+  
+        ws.onerror = (error) => {
+          console.error('WebSocket 오류:', error);
+          status.textContent = '상태: WebSocket 오류 발생';
+        };
+  
+        ws.onclose = () => {
+          console.log('WebSocket 연결 종료됨');
+          status.textContent = '상태: WebSocket 연결 종료됨';
+          stopRecording();
+        };
+  
+      } catch (err) {
+        console.error('오류 발생:', err);
+        status.textContent = `상태: 오류 - ${err.message}`;
+      }
+    });
+  
+    // 녹음 중지 버튼 클릭
+    stopBtn.addEventListener('click', () => {
+      if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+      }
+    });
+  
+    // 녹음 종료 및 UI 초기화
+    function stopRecording() {
+      if (isRecording) {
+        isRecording = false;
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        }
+        status.textContent = '상태: 녹음 중지됨';
+        status.classList.remove('recording');
+        recordIndicator.classList.remove('recording-active');
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+    }
+  
+    // TTS 재생
+    ttsBtn.addEventListener('click', async () => {
+      const text = translation.textContent;
+      if (!text || text === '번역 대기 중...' || text === '번역 결과 없음') return;
+  
+      try {
+        ttsBtn.disabled = true;
+        ttsBtn.textContent = '오디오 로딩 중...';
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+  
+        if (!response.ok) throw new Error('TTS 요청 실패');
+  
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+  
+        audio.onended = () => {
+          ttsBtn.textContent = '번역된 내용 듣기';
+          ttsBtn.disabled = false;
+        };
+  
+        audio.play();
+        ttsBtn.textContent = '재생 중...';
+      } catch (err) {
+        console.error('TTS 오류:', err);
+        ttsBtn.textContent = '오류 발생';
+        setTimeout(() => {
+          ttsBtn.textContent = '번역된 내용 듣기';
+          ttsBtn.disabled = false;
+        }, 2000);
+      }
+    });
+  
+    // 페이지 떠날 때 정리
+    window.addEventListener('beforeunload', () => {
+      stopRecording();
+    });
+  </script>
+  
+</body>
+</html>
