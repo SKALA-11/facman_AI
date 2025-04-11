@@ -1,0 +1,41 @@
+name: Deploy Facman AI and Services to EC2
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    name: Deploy to EC2 instance
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. 저장소 코드 체크아웃
+    # 워크플로우를 실행하는 러너 환경으로 최신 코드를 가져옵니다.
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. SSH를 통해 EC2 서버에 접속하여 배포 스크립트 실행
+    - name: Deploy to EC2 instance
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 22
+        script: | 
+          cd /home/ubuntu
+          cd facman_AI
+          echo "Pulling latest code from GitHub..."
+          git checkout main
+          git pull origin main
+
+          cd ..
+
+          echo "Building and restarting Docker services..."
+          docker-compose -f docker-compose.yml up -d --build
+
+          echo "Pruning old docker images..."
+          docker image prune -f
+
+          echo "Deployment completed successfully!"
