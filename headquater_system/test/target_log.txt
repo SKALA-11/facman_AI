@@ -16,3 +16,4 @@ Static to Static
 Be quiet.
 Data through the socket...
 Receive data
+Well, do you seem a bit bored, nationalist?

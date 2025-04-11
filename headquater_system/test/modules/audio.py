@@ -20,11 +20,12 @@ def audio_callback(indata, frames, time_info, status):
         audio_queue.put(indata.copy())
 
 def audio_collection_thread():
-    try:
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
-                            callback=audio_callback, blocksize=BLOCK_SIZE):
-            print("🎙️ 음성 수집 시작...")
-            while True:
-                time.sleep(0.1)
-    except Exception as e:
-        print(f"오디오 스트림 오류: {e}", file=sys.stderr)
+    pass
+    # try:
+    #     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
+    #                         callback=audio_callback, blocksize=BLOCK_SIZE):
+    #         print("🎙️ 음성 수집 시작...")
+    #         while True:
+    #             time.sleep(0.1)
+    # except Exception as e:
+    #     print(f"오디오 스트림 오류: {e}", file=sys.stderr)
