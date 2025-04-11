@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from db.database import Base
@@ -8,8 +8,8 @@ class EventModel(Base):
     __tablename__ = "events"
 
     id = Column(Integer, primary_key=True, index=True)
-    type = Column(String(50), nullable=False)
-    value = Column(String(255), nullable=False)
+    type = Column(Text, nullable=False)
+    value = Column(Text, nullable=False)
     time = Column(DateTime, default=datetime.now, nullable=False)
 
     event_details = relationship(

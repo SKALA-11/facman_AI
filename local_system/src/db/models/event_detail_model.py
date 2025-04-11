@@ -10,7 +10,7 @@ class EventDetailModel(Base):
         Integer, ForeignKey("events.id"), primary_key=True, nullable=False
     )
     file = Column(Text(length=16777215), nullable=False)
-    explain = Column(String(1000), nullable=False)
+    explain = Column(Text, nullable=False)
 
     event = relationship("EventModel", back_populates="event_details")
 
