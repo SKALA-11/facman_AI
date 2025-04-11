@@ -1,12 +1,11 @@
 import openai
 import base64
 from core.config import OPENAI_API_KEY, VECTOR_DB
+from langchain.prompts import ChatPromptTemplate
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
 from langchain.schema.output_parser import StrOutputParser
-from langchain.prompts import ChatPromptTemplate
-from .prompts import get_solve_event_prompt, get_report_prompt
 
 
 class ChatBot:
@@ -34,7 +33,27 @@ class ChatBot:
         if docs:
             rag += "\n".join([doc.page_content for doc in docs])
 
-        prompt = get_solve_event_prompt(image, event_explain, rag)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "당신은 전문가입니다. 참고자료, 이미지, 설명를 참고하여 분석하여 주세요.",
+                ),
+                (
+                    "user",
+                    [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                        },
+                        {
+                            "type": "text",
+                            "text": f"참고자료, 이미지, 설명을 바탕으로 해결법을 도출하여 주세요. 설명: {event_explain}, \n 참고자료: {rag}",
+                        },
+                    ],
+                ),
+            ]
+        )
 
         chain = prompt | self.llm | StrOutputParser()
 
@@ -51,7 +70,27 @@ class ChatBot:
         if docs:
             rag += "\n".join([doc.page_content for doc in docs])
 
-        prompt = get_report_prompt(image, event_explain, rag, answer)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "참고자료, 이미지, 설명, 응답으로 report에 사용할 내용물을 작성하여 주세요.",
+                ),
+                (
+                    "user",
+                    [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                        },
+                        {
+                            "type": "text",
+                            "text": f"이미지와 설명을 바탕으로 보고서를 만들어 주세요. 설명: {event_explain}, 참고자료 {rag}, 응답 {answer}",
+                        },
+                    ],
+                ),
+            ]
+        )
 
         chain = prompt | self.llm | StrOutputParser()
 
