@@ -1,15 +1,20 @@
 import time
 import random
 import requests
+import json
+import os
 
 url = "http://127.0.0.1:8001"
 
+base_dir = os.path.dirname(os.path.abspath(__file__))
+filtered_data_path = os.path.join(base_dir, "filtered_data.json")
+
+with open(filtered_data_path, "r", encoding="utf-8") as f:
+    filtered = json.load(f)
+
 data = [
-    {"type": "type1", "value": "value1"},
-    {"type": "type2", "value": "value2"},
-    {"type": "type3", "value": "value3"},
-    {"type": "type4", "value": "value4"},
-    {"type": "type5", "value": "value5"},
+    {"type": item["file_name"], "value": item["text"]}
+    for item in filtered
 ]
 
 
@@ -23,7 +28,7 @@ def send_event(type, value):
             print(f"Event created successfully: {response.json()}")
             return True
         else:
-            print(f"Failed to create event: {response.status_code} - {response.text}")
+            print(f"Failed to create event: {response.status_code}")
             return False
     except Exception as e:
         print(f"Error sending event: {e}")
@@ -35,7 +40,7 @@ def main():
         random_value = random.random()
         if random_value < 0.1:
             random_data = data[random.randrange(0, len(data))]
-            print(random_data)
+            print(f"Sending event: {random_data['type']}")
             send_event(random_data["type"], random_data["value"])
 
         time.sleep(1)
