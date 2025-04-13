@@ -53,7 +53,7 @@ def detect_language(audio_path):
         print(f"언어 감지 오류: {e}", file=sys.stderr)
         return DEFAULT_LANGUAGE
 
-def stt_processing_thread(sentence_queue, recording_active, target_language):
+def stt_processing_thread(audio_queue, sentence_queue, transcription_queue, recording_active, target_language):
     global detected_language
     buffer = np.zeros((0, 1), dtype=np.float32)
     silence_threshold = 0.02
@@ -78,7 +78,7 @@ def stt_processing_thread(sentence_queue, recording_active, target_language):
                             audio_queue.task_done()
                             continue
                         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                            sf.write(f.name, buffer, SAMPLE_RATE)
+                            sf.write(f.name, buffer, SAMPLE_RATE, format='WAV', subtype='PCM_16')  
                             if not language_detected_once:
                                 lang_code = detect_language(f.name)
                                 if lang_code:
@@ -105,6 +105,7 @@ def stt_processing_thread(sentence_queue, recording_active, target_language):
                             with language_lock:
                                 src_lang = detected_language if detected_language is not None else DEFAULT_LANGUAGE
                             sentence_queue.put((text, src_lang))
+                            transcription_queue.put((text, src_lang))
                     buffer = np.zeros((0, 1), dtype=np.float32)
                     silence_start = None
             else:

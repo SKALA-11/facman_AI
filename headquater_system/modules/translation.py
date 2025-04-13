@@ -6,7 +6,7 @@ from modules.utils import language_map, get_log_filenames
 from config import CLIENT
 import sys
 
-def translation_thread(sentence_queue, translation_queue, target_language):
+def translation_thread(sentence_queue, translation_queue, translated_queue, target_language):
     while True:
         try:
             sentence_data = sentence_queue.get(timeout=1)
@@ -41,6 +41,7 @@ def translation_thread(sentence_queue, translation_queue, target_language):
                 with open(target_log, "a", encoding="utf-8") as f:
                     f.write(translation + "\n")
                 translation_queue.put(translation)
+                translated_queue.put(translation)
             sentence_queue.task_done()
         except queue.Empty:
             continue
