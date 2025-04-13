@@ -1,4 +1,3 @@
-import base64
 from chatbot import chatbot
 from fastapi import APIRouter, UploadFile, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +11,7 @@ from db.cruds import (
     update_solution_complete,
 )
 from typing import Optional
-from io import BytesIO
-from PIL import Image
+from utils import encode_image, make_pdf, send_email
 
 router = APIRouter()
 
@@ -44,7 +42,7 @@ async def get_events_router(
 
 @router.post("/solve_event")
 async def solve_event_router(
-    event_id: int, file: UploadFile, explain: str, db: AsyncSession = Depends(get_db)
+    event_id: int, image: UploadFile, explain: str, db: AsyncSession = Depends(get_db)
 ):
     event = await get_event(db, event_id)
     if not event:
@@ -52,29 +50,19 @@ async def solve_event_router(
             status_code=404, detail=f"Event with ID {event_id} not found"
         )
 
-    bytes_data = await file.read()
+    bytes = await image.read()
 
-    img = Image.open(BytesIO(bytes_data))
-    img = img.convert("RGB")
-
-    max_size = (800, 800)
-    img.thumbnail(max_size, Image.LANCZOS)
-
-    buffer = BytesIO()
-    img.save(buffer, format="JPEG", quality=70)
-    compressed_bytes = buffer.getvalue()
-
-    file_encoded = base64.b64encode(compressed_bytes).decode("utf-8")
+    encoded_image = encode_image(bytes)
 
     event_detail = await get_event_detail(db, event_id)
 
     if event_detail:
-        event_detail = await update_event_detail(db, event_id, file_encoded, explain)
+        event_detail = await update_event_detail(db, event_id, encoded_image, explain)
     else:
-        event_detail = await create_event_detail(db, event_id, file_encoded, explain)
+        event_detail = await create_event_detail(db, event_id, encoded_image, explain)
 
-    await file.seek(0)
-    answer = chatbot.solve_event(event, file_encoded, explain)
+    await image.seek(0)
+    answer = chatbot.solve_event(event, encoded_image, explain)
 
     solution = await get_solution(db, event_id)
     if solution:
@@ -98,7 +86,7 @@ async def event_complete_router(
 
 
 @router.get("/download_report/{event_id}")
-async def get_event_report_router(event_id: int, db: AsyncSession = Depends(get_db)):
+async def get_event_report_router(event_id: int, email: str, db: AsyncSession = Depends(get_db)):
     event = await get_event(db, event_id)
     if not event:
         raise HTTPException(
@@ -120,5 +108,7 @@ async def get_event_report_router(event_id: int, db: AsyncSession = Depends(get_
     answer = chatbot.make_report_content(
         event, event_detail.file, event_detail.explain, solution.answer
     )
+    
+    send_email(email, make_pdf(answer))
 
     return {"answer": answer}

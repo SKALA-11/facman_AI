@@ -1,0 +1,84 @@
+from langchain.prompts import ChatPromptTemplate
+
+
+def get_solve_event_prompt(
+    image: str, event_explain: str, rag: str
+) -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "당신은 산업시설 및 공정 안전 분야의 시니어 기술 컨설턴트입니다. "
+                "당신의 주요 업무는 현장에서 발생한 사고 또는 이상 징후에 대해 다각도로 원인을 분석하고, "
+                "기술적 · 인프라적 · 조직 운영 측면에서 실질적인 해결 방안을 제시하는 것입니다.\n\n"
+                "다음의 정보(사건 설명, 참고 이미지, 관련 문헌 요약)를 바탕으로 다음 요구사항을 충족하는 분석 및 해결 방안을 작성하세요:\n\n"
+                "1. **문제 개요 요약**: 사고 또는 이슈가 발생한 배경과 상황을 간결하게 요약합니다.\n"
+                "2. **원인 분석**: 직접 원인(root cause), 간접 요인(contributing factors), 시스템적 결함(systemic flaws)을 분리하여 구조적으로 기술합니다.\n"
+                "3. **과거 사례와 비교 분석**: 제공된 참고자료에서 유사 사례를 인용하고, 본 사건과의 유사점 및 차이점을 비교합니다.\n"
+                "4. **기술적 해결방안**: 현장 적용 가능한 기술적 조치(장비 개선, 회로 재설계, 계측 시스템 활용 등)를 단계별로 제안합니다.\n"
+                "5. **운영 절차 개선**: 작업자 교육, SOP 개정, 실시간 모니터링 강화 등 비기술적 대응 방안도 포함합니다.\n"
+                "6. **예방 및 재발 방지 대책**: 해당 사건의 재발을 막기 위한 중장기 전략(예: 예측 유지보수 체계, 리스크 평가 프로토콜, KPI 연계 관리)을 기술합니다.\n\n"
+                "※ 응답은 전문가 보고서 양식에 맞춰 **번호를 포함한 구조적 서술**, **간결하고 전문적인 문장**, **필요시 용어 정의**를 포함해 주세요.",
+            ),
+            (
+                "user",
+                [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            f"[문제 설명]\n{event_explain}\n\n"
+                            f"[참고자료 요약]\n{rag}"
+                        ),
+                    },
+                ],
+            ),
+        ]
+    )
+
+
+def get_report_prompt(
+    image: str, event_explain: str, rag: str, answer: str
+) -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "당신은 산업 안전 분석 보고서를 작성하는 전문가입니다. "
+                "아래의 문제 설명, 과거 사례 요약, GPT 응답을 바탕으로 보고서를 작성해 주세요. "
+                "다음 항목은 반드시 모두 포함되어야 합니다:\n"
+                "1. 사건 개요\n"
+                "2. 원인 분석\n"
+                "3. 해결 방안 제시\n"
+                "4. 참고 사례 요약\n"
+                "5. 향후 예방을 위한 제언"
+                "또한, 답변은 모두 영어로 생성하여야만 합니다."
+            ),
+            (
+                "user",
+                [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            f"[문제 설명]: {event_explain}\n"
+                            f"[과거 사례 요약]: {rag}\n"
+                            f"[GPT 분석 응답]: {answer}\n\n"
+                            f"위의 정보를 바탕으로 아래 형식에 따라 보고서를 작성해 주세요.\n\n"
+                            f"1. 사건 개요\n"
+                            f"2. 원인 분석\n"
+                            f"3. 해결 방안 제시\n"
+                            f"4. 참고 사례 요약\n"
+                            f"5. 향후 예방을 위한 제언"
+                        ),
+                    },
+                ],
+            ),
+        ]
+    )
