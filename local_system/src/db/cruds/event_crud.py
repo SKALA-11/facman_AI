@@ -3,8 +3,8 @@ from sqlalchemy import select
 from typing import List, Optional
 from datetime import datetime
 
-from db.models import EventModel
-from db.schemas import EventCreate, EventInDB
+from ..models import EventModel
+from ..schemas import EventCreate, EventInDB
 
 
 async def create_event(db: AsyncSession, type: str, value: str) -> EventInDB:

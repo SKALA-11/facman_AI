@@ -1,5 +1,5 @@
 import asyncio
-from db.database import Base, async_engine
+from .db.database import Base, async_engine
 
 
 async def initialize_database():

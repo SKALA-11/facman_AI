@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # 본사(HQ) 시스템 API 라우터 import
-from routers.hq import hq_router
+from .routers.hq import hq_router
 
 app = FastAPI()
 

@@ -2,8 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional, List
 
-from db.models import EventDetailModel
-from db.schemas import EventDetailCreate, EventDetailInDB
+from ..models import EventDetailModel
+from ..schemas import EventDetailCreate, EventDetailInDB
 
 
 async def create_event_detail(

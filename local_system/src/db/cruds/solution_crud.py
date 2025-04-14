@@ -2,8 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional, List
 
-from db.models import SolutionModel
-from db.schemas import SolutionCreate, SolutionInDB
+from ..models import SolutionModel
+from ..schemas import SolutionCreate, SolutionInDB
 
 
 async def create_solution(db: AsyncSession, event_id: int, answer: str) -> SolutionInDB:

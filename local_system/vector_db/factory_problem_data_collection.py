@@ -3,7 +3,7 @@ import json
 import fitz
 import re
 from langchain.schema import Document
-from chromadb_wrapper import ChromaDBWrapper
+from .chromadb_wrapper import ChromaDBWrapper
 
 
 class KeywordFilteredPDFExtractor:

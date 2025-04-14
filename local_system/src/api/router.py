@@ -1,17 +1,17 @@
-from chatbot import chatbot
+from ..chatbot import chatbot
 from fastapi import APIRouter, UploadFile, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from db.database import get_db
-from db.cruds import create_event, get_event, get_events
-from db.cruds import create_event_detail, get_event_detail, update_event_detail
-from db.cruds import (
+from ..db.database import get_db
+from ..db.cruds import create_event, get_event, get_events
+from ..db.cruds import create_event_detail, get_event_detail, update_event_detail
+from ..db.cruds import (
     create_solution,
     get_solution,
     update_solution,
     update_solution_complete,
 )
 from typing import Optional
-from utils import encode_image, make_pdf, send_email
+from ..utils import encode_image, make_pdf, send_email
 
 router = APIRouter()
 
