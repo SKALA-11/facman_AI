@@ -33,9 +33,9 @@ jobs:
           cd ..
 
           echo "Building and restarting Docker services..."
-          docker-compose -f docker compose.yml up -d --build
+          sudo docker compose -f docker-compose.yml up -d --build
 
           echo "Pruning old docker images..."
-          docker image prune -f
+          sudo docker image prune -f
 
           echo "Deployment completed successfully!"
