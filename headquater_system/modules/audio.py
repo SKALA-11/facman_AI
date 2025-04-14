@@ -5,7 +5,7 @@ import sounddevice as sd
 import numpy as np
 import time
 import queue
-from ..config import SAMPLE_RATE, BLOCK_SIZE
+from config import SAMPLE_RATE, BLOCK_SIZE
 
 # 오디오 데이터와 녹음 제어를 위한 전역 변수
 audio_queue = queue.Queue()
