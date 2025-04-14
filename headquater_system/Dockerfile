@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. 애플리케이션 코드 복사
 COPY ./modules ./modules
+COPY ./routers ./routers
 COPY ./config.py .
 COPY ./main.py .
 # .env 파일은 여기에 포함하지 않습니다.
