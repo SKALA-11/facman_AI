@@ -7,7 +7,7 @@ import os
 import sounddevice as sd
 import soundfile as sf
 from pathlib import Path
-from ..config import CLIENT
+from config import CLIENT
 import io
 
 def tts_thread(translation_queue, recording_active):

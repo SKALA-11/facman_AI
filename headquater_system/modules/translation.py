@@ -2,8 +2,8 @@
 
 import queue
 import openai
-from .utils import language_map, get_log_filenames
-from ..config import CLIENT
+from utils import language_map, get_log_filenames
+from config import CLIENT
 import sys
 
 def translation_thread(sentence_queue, translation_queue, translated_queue, target_language):

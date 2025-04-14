@@ -9,11 +9,11 @@ import ffmpeg
 import base64
 
 # 모듈 import
-from ..modules.stt import stt_processing_thread
-from ..modules.tts import tts_thread, generate_tts_audio
-from ..modules.translation import translation_thread
-from ..modules.audio import audio_queue, recording_active
-from ..config import CLIENT  # 필요 시 사용
+from modules.stt import stt_processing_thread
+from modules.tts import tts_thread, generate_tts_audio
+from modules.translation import translation_thread
+from modules.audio import audio_queue, recording_active
+from config import CLIENT  # 필요 시 사용
 
 # 라우터 생성 및 본사 시스템용 API prefix 설정
 hq_router = APIRouter(prefix="/ai/hq")
