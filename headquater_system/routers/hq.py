@@ -51,7 +51,7 @@ async def startup_event():
     ).start()
 
     # 디버그: 주기적으로 각 큐의 상태를 로깅하는 스레드 실행
-    threading.Thread(target=debug_queues, daemon=True).start()
+    # threading.Thread(target=debug_queues, daemon=True).start()
 
     # 결과 전송 태스크를 메인 이벤트 루프에 스케줄링
     asyncio.create_task(result_sender_task())
@@ -140,23 +140,42 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_json()
-            b64 = data["audioData"]
+            
+            # data: 'type', 'speakerInfo', 'audioData', 'sampleRate', 'encoding', 'timeStamp'
+            msg_type = data.get("type")
+            if msg_type != "live_audio_chunk":
+                continue  # 다른 메시지 타입은 무시
+            
+            speaker_info = data["speakerInfo"]
+            audio_base64 = data["audioData"]
             sample_rate = int(data["sampleRate"])
-            channels = int(data["channels"])
+
+            # channels = int(data["channels"])
 
             # Base64 디코딩
-            raw_bytes = base64.b64decode(b64)
-            audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-            
-            if channels == 2:
-                audio_np = audio_np.reshape(-1, 2).mean(axis=1)
-            else:
-                audio_np = audio_np.reshape(-1)
-            
-            audio_np = audio_np.reshape(-1, 1)
-            audio_queue.put(audio_np)
+            try:
+                raw_bytes = base64.b64decode(audio_base64)
+                # Int16으로 변환 후 정규화 (float32 범위 [-1, 1])
+                audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                # 모노 또는 다중 채널 여부에 따라 재배열
+                audio_np = audio_np.reshape(-1, 1)
 
-            print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}")
+                audio_queue.put(audio_np)
+
+                print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}")
+            except Exception as e:
+                print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
+                continue
+        
+            # raw_bytes = base64.b64decode(audio_base64)
+            # audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            
+            # if channels == 2: # stereo to mono
+            #     audio_np = audio_np.reshape(-1, 2).mean(axis=1)
+            # else:
+            #     audio_np = audio_np.reshape(-1)
+            
+            # audio_np = audio_np.reshape(-1, 1)
     
     except WebSocketDisconnect:
         print("[DEBUG] WebSocket 연결 종료됨")
@@ -202,7 +221,6 @@ async def result_sender_task():
         await asyncio.sleep(1)
 
 # 2. STT 전사 결과 반환
-
 @hq_router.get("/transcription")
 async def get_transcription():
     global latest_transcription
