@@ -9,6 +9,8 @@ WORKDIR /app
 # 3. 필요한 시스템 패키지 설치 (ffmpeg 등 STT/TTS 모듈에 필요할 수 있음)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc python3-dev && \
+    libportaudio2 \
+    portaudio19-dev \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
