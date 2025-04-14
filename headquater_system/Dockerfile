@@ -7,7 +7,10 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # 3. 필요한 시스템 패키지 설치 (ffmpeg 등 STT/TTS 모듈에 필요할 수 있음)
-# 예시: RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc python3-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # 4. 의존성 파일 복사 및 설치
 COPY requirements.txt .
