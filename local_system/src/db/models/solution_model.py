@@ -8,7 +8,7 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
 )
 from sqlalchemy.orm import relationship
-from db.database import Base
+from ..database import Base
 
 
 class SolutionModel(Base):
