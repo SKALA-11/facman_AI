@@ -21,6 +21,8 @@ COPY ./src ./src
 COPY ./vector_db ./vector_db
 # .env 파일은 여기에 포함하지 않습니다. (docker-compose에서 처리)
 
+RUN python ./src/db_migrate.py
+
 # 6. 애플리케이션 실행
 # main.py가 src 폴더 안에 있다고 가정
 # 포트는 예시로 8001 사용 (내부 포트)
