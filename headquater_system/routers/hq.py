@@ -6,6 +6,7 @@ import threading, queue, tempfile, os, io, time, asyncio
 import numpy as np
 import soundfile as sf
 import ffmpeg
+import base64
 
 # 모듈 import
 from modules.stt import stt_processing_thread
@@ -15,7 +16,7 @@ from modules.audio import audio_queue, recording_active
 from config import CLIENT  # 필요 시 사용
 
 # 라우터 생성 및 본사 시스템용 API prefix 설정
-hq_router = APIRouter(prefix="/ai/hq/api")
+hq_router = APIRouter(prefix="/ai/hq")
 
 # 전역 큐들 (음성 처리 파이프라인)
 sentence_queue = queue.Queue()
@@ -82,47 +83,80 @@ websocket_clients = []
 
 # 1-1. STT websocket
 
-# STT WebSocket 엔드포인트 (/ai/hq/api/ws/stt)
+# STT WebSocket 엔드포인트 (/ai/hq/ws/stt)
+# @hq_router.websocket("/ws/stt")
+# async def websocket_endpoint(websocket: WebSocket):
+#     await websocket.accept()
+#     print("[DEBUG] WebSocket 연결됨")
+#     websocket_clients.append(websocket)
+#     try:
+#         while True:
+#             data = await websocket.receive_bytes()
+            
+#             # 임시 파일에 저장
+#             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_file:
+#                 temp_file_path = temp_file.name
+#                 temp_file.write(data)
+#             print(f"[DEBUG] 임시 파일 생성됨: {temp_file_path}")
+            
+#             try:
+#                 # ffmpeg로 .webm → .wav 변환
+#                 wav_buffer = convert_webm_to_wav_bytes(temp_file_path)
+#                 os.unlink(temp_file_path)  # 임시 파일 삭제
+#                 if wav_buffer is None:
+#                     print("[DEBUG] 변환 실패한 청크 건너뜀")
+#                     continue
+#                 wav_buffer.seek(0)
+#                 audio_data, sample_rate = sf.read(wav_buffer, dtype='float32')
+#                 print(f"[DEBUG] 수신된 오디오 데이터: shape {audio_data.shape}, sample_rate {sample_rate}")
+                
+#                 # 스테레오면 모노 변환
+#                 if len(audio_data.shape) > 1:
+#                     audio_data = audio_data.mean(axis=1).reshape(-1, 1)
+#                 else:
+#                     audio_data = audio_data.reshape(-1, 1)
+                
+#                 # audio_queue에 추가 (STT 처리 스레드로 전달)
+#                 audio_queue.put(audio_data)
+#                 print(f"[DEBUG] audio_queue에 데이터 추가됨. 현재 queue 크기: {audio_queue.qsize()}")
+            
+#             except Exception as e:
+#                 print(f"[DEBUG] 오디오 처리 오류: {e}")
+#                 if os.path.exists(temp_file_path):
+#                     os.unlink(temp_file_path)
+    
+#     except WebSocketDisconnect:
+#         print("[DEBUG] WebSocket 연결 종료됨")
+#         if websocket in websocket_clients:
+#             websocket_clients.remove(websocket)
+
+# 지피티가 짜준 base64 번역 코드 -> 테스트 필요
 @hq_router.websocket("/ws/stt")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("[DEBUG] WebSocket 연결됨")
+    print("[DEBUG] WebSocket 연결됨 (Base64 모드)")
     websocket_clients.append(websocket)
+    
     try:
         while True:
-            data = await websocket.receive_bytes()
+            data = await websocket.receive_json()
+            b64 = data["audioData"]
+            sample_rate = int(data["sampleRate"])
+            channels = int(data["channels"])
+
+            # Base64 디코딩
+            raw_bytes = base64.b64decode(b64)
+            audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             
-            # 임시 파일에 저장
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_file:
-                temp_file_path = temp_file.name
-                temp_file.write(data)
-            print(f"[DEBUG] 임시 파일 생성됨: {temp_file_path}")
+            if channels == 2:
+                audio_np = audio_np.reshape(-1, 2).mean(axis=1)
+            else:
+                audio_np = audio_np.reshape(-1)
             
-            try:
-                # ffmpeg로 .webm → .wav 변환
-                wav_buffer = convert_webm_to_wav_bytes(temp_file_path)
-                os.unlink(temp_file_path)  # 임시 파일 삭제
-                if wav_buffer is None:
-                    print("[DEBUG] 변환 실패한 청크 건너뜀")
-                    continue
-                wav_buffer.seek(0)
-                audio_data, sample_rate = sf.read(wav_buffer, dtype='float32')
-                print(f"[DEBUG] 수신된 오디오 데이터: shape {audio_data.shape}, sample_rate {sample_rate}")
-                
-                # 스테레오면 모노 변환
-                if len(audio_data.shape) > 1:
-                    audio_data = audio_data.mean(axis=1).reshape(-1, 1)
-                else:
-                    audio_data = audio_data.reshape(-1, 1)
-                
-                # audio_queue에 추가 (STT 처리 스레드로 전달)
-                audio_queue.put(audio_data)
-                print(f"[DEBUG] audio_queue에 데이터 추가됨. 현재 queue 크기: {audio_queue.qsize()}")
-            
-            except Exception as e:
-                print(f"[DEBUG] 오디오 처리 오류: {e}")
-                if os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
+            audio_np = audio_np.reshape(-1, 1)
+            audio_queue.put(audio_np)
+
+            print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}")
     
     except WebSocketDisconnect:
         print("[DEBUG] WebSocket 연결 종료됨")
