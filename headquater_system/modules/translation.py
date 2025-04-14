@@ -2,7 +2,7 @@
 
 import queue
 import openai
-from utils import language_map, get_log_filenames
+from modules.utils import language_map, get_log_filenames
 from config import CLIENT
 import sys
 
