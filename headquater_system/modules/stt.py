@@ -57,7 +57,7 @@ def stt_processing_thread(audio_queue, sentence_queue, transcription_queue, reco
     global detected_language
     buffer = np.zeros((0, 1), dtype=np.float32)
     silence_threshold = 0.02
-    silence_duration_threshold = 1.0
+    silence_duration_threshold = 0.5 # 실시간성 고려
     silence_start = None
     language_detected_once = False
 
