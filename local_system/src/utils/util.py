@@ -1,6 +1,6 @@
 import base64
 import smtplib
-from core.config import EMAIL_ADDRESS, EMAIL_PASSWORD
+from ..core.config import EMAIL_ADDRESS, EMAIL_PASSWORD
 from io import BytesIO
 from PIL import Image
 from email.message import EmailMessage

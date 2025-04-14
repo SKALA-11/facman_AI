@@ -1,10 +1,10 @@
 import openai
-from core.config import OPENAI_API_KEY, VECTOR_DB
+from ..core.config import OPENAI_API_KEY, VECTOR_DB
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
 from langchain.schema.output_parser import StrOutputParser
-from chatbot.prompts import get_solve_event_prompt, get_report_prompt
+from .prompts import get_solve_event_prompt, get_report_prompt
 
 
 class ChatBot:
