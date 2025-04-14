@@ -10,7 +10,7 @@ import queue
 import webrtcvad
 import threading
 from config import SAMPLE_RATE, DEFAULT_LANGUAGE, CLIENT
-from audio import audio_queue
+from modules.audio import audio_queue
 from utils import sanitize_language_code, get_log_filenames
 
 # 전역 변수 (메인에서 관리하도록 할 수도 있음)
