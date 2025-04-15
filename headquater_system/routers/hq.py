@@ -12,7 +12,7 @@ import base64
 from modules.stt import stt_processing_thread
 from modules.tts import tts_thread, generate_tts_audio
 from modules.translation import translation_thread
-from modules.audio import audio_queue, recording_active
+from modules.audio import recording_active
 from modules.user import get_or_create_user
 from config import CLIENT  # 필요 시 사용
 
@@ -20,6 +20,7 @@ from config import CLIENT  # 필요 시 사용
 hq_router = APIRouter(prefix="/ai/hq")
 
 # 전역 큐들 (음성 처리 파이프라인)
+audio_queue = queue.Queue()
 sentence_queue = queue.Queue()
 translation_queue = queue.Queue()
 transcription_queue = queue.Queue()
@@ -141,6 +142,7 @@ async def websocket_endpoint(websocket: WebSocket):
             speaker_info = data["speakerInfo"]
             speaker_name = speaker_info.get("name", "Unknown")
             connection_id = speaker_info.get("connectionId", "N/A")
+            client_data = speaker_name.get("clientData", "")
             
             user = get_or_create_user(speaker_name, connection_id)
 
@@ -161,7 +163,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # 앞으로 이 코드로 바꿔야됨
                 # audio_queue.put((audio_np, sample_rate, user))
                 if(audio_np.shape[0] > 0):
-                    print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}, speaker info: {speaker_name}")
+                    print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}, sample rate: {sample_rate}, speaker info: {client_data}")
             except Exception as e:
                 print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
                 continue
