@@ -77,12 +77,12 @@ def stt_processing_thread(user):
             # 버퍼가 비어있으면 시작 시간을 기록
             buffer = np.concatenate((buffer, data), axis=0)
             current_time = time.time()
-            print(f"[DEBUG] 사용자 {user.name} - 버퍼 크기: {buffer.shape[0]} (목표: {SAMPLE_RATE})")
+            # print(f"[DEBUG] 사용자 {user.name} - 버퍼 크기: {buffer.shape[0]} (목표: {SAMPLE_RATE})")
             if current_time - start_time >= process_threshold_seconds or len(buffer) >= SAMPLE_RATE:
                 # Optional: 침묵 체크 (발화가 충분한지 확인)
                 if len(buffer) > int(SAMPLE_RATE * 0.5):
                     if not is_speech(buffer):
-                        print("[DEBUG] 사용자 {user.name} - 음성 없음, 버퍼 초기화")
+                        # print(f"[DEBUG] 사용자 {user.name} - 음성 없음, 버퍼 초기화")
                         buffer = np.zeros((0, 1), dtype=np.float32)
                         start_time = None
                         user.audio_queue.task_done()
