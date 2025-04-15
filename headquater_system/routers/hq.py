@@ -13,6 +13,7 @@ from modules.stt import stt_processing_thread
 from modules.tts import tts_thread, generate_tts_audio
 from modules.translation import translation_thread
 from modules.audio import audio_queue, recording_active
+from modules.user import get_or_create_user
 from config import CLIENT  # 필요 시 사용
 
 # 라우터 생성 및 본사 시스템용 API prefix 설정
@@ -50,17 +51,8 @@ async def startup_event():
         daemon=True
     ).start()
 
-    # 디버그: 주기적으로 각 큐의 상태를 로깅하는 스레드 실행
-    # threading.Thread(target=debug_queues, daemon=True).start()
-
     # 결과 전송 태스크를 메인 이벤트 루프에 스케줄링
     asyncio.create_task(result_sender_task())
-
-# 디버그 함수: 각 큐 상태를 출력
-def debug_queues():
-    while True:
-        print(f"[DEBUG] audio_queue: {audio_queue.qsize()} | sentence_queue: {sentence_queue.qsize()} | translation_queue: {translation_queue.qsize()}")
-        time.sleep(5)
 
 # 1. STT 관리 함수
 
@@ -147,6 +139,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue  # 다른 메시지 타입은 무시
             
             speaker_info = data["speakerInfo"]
+            speaker_name = speaker_info.get("name", "Unknown")
+            connection_id = speaker_info.get("connectionId", "N/A")
+            
+            user = get_or_create_user(speaker_name, connection_id)
+
             audio_base64 = data["audioData"]
             sample_rate = int(data["sampleRate"])
 
@@ -161,8 +158,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 audio_np = audio_np.reshape(-1, 1)
 
                 audio_queue.put(audio_np)
+                # 앞으로 이 코드로 바꿔야됨
+                # audio_queue.put((audio_np, sample_rate, user))
 
-                print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}")
+                print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}, speaker info: {speaker_name}")
             except Exception as e:
                 print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
                 continue
