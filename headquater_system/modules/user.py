@@ -18,6 +18,7 @@ class User:
 
         # 사용자 전용 큐들
         self.audio_queue = queue.Queue()
+        self.sentence_queue = queue.Queue()
         self.transcription_queue = queue.Queue()
         self.translation_queue = queue.Queue()
         self.translated_queue = queue.Queue()
