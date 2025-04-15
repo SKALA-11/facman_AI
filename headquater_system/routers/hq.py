@@ -142,7 +142,6 @@ async def websocket_endpoint(websocket: WebSocket):
             speaker_info = data["speakerInfo"]
             speaker_name = speaker_info.get("name", "Unknown")
             connection_id = speaker_info.get("connectionId", "N/A")
-            client_data = speaker_name["clientData"]
             
             user = get_or_create_user(speaker_name, connection_id)
 
@@ -163,7 +162,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # 앞으로 이 코드로 바꿔야됨
                 # audio_queue.put((audio_np, sample_rate, user))
                 if(audio_np.shape[0] > 0):
-                    print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}, sample rate: {sample_rate}, speaker info: {client_data}")
+                    print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {audio_queue.qsize()}, sample rate: {sample_rate}, speaker info: {speaker_name}")
             except Exception as e:
                 print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
                 continue
@@ -250,35 +249,3 @@ async def tts_api(request: TTSRequest):
     except Exception as e:
         print(f"[HQ Error] TTS 엔드포인트에서 오류: {e}")
         return JSONResponse(status_code=500, content={"error": f"서버 내부 오류 발생: {str(e)}"})
-
-
-# 디버깅용(필요없음)
-@hq_router.post("/audio")
-async def process_audio(audio_data: AudioData):
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_file:
-            temp_file.write(audio_data.audio_data)
-            temp_file_path = temp_file.name
-        print(f"[DEBUG] (HQ) 업로드된 파일 임시 저장됨: {temp_file_path}")
-        try:
-            wav_buffer = convert_webm_to_wav_bytes(temp_file_path)
-            os.unlink(temp_file_path)
-            if wav_buffer is None:
-                print("[DEBUG] 변환 실패한 청크 건너뜀")
-                return JSONResponse({"status": "변환 실패"})
-            wav_buffer.seek(0)
-            audio_np, sample_rate = sf.read(wav_buffer, dtype='float32')
-            print(f"[DEBUG] (HQ) 직접 업로드: audio_np shape: {audio_np.shape}, sample_rate: {sample_rate}")
-            if len(audio_np.shape) > 1:
-                audio_np = audio_np.mean(axis=1).reshape(-1, 1)
-            else:
-                audio_np = audio_np.reshape(-1, 1)
-            audio_queue.put(audio_np)
-            print(f"[DEBUG] (HQ) audio_queue에 데이터 추가됨. 현재 queue 크기: {audio_queue.qsize()}")
-            return JSONResponse({"status": "처리 중", "queue_size": audio_queue.qsize()})
-        except Exception as e:
-            if os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-            raise e
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
