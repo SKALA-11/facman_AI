@@ -142,7 +142,7 @@ async def websocket_endpoint(websocket: WebSocket):
             speaker_info = data["speakerInfo"]
             speaker_name = speaker_info.get("name", "Unknown")
             connection_id = speaker_info.get("connectionId", "N/A")
-            client_data = speaker_name.get("clientData", "")
+            client_data = speaker_name["clientData"]
             
             user = get_or_create_user(speaker_name, connection_id)
 
