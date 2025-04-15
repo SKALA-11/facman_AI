@@ -89,7 +89,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 # 전역 큐 대신 해당 사용자 객체의 audio_queue에 데이터와 sample_rate 튜플로 넣음
                 user.audio_queue.put((audio_np, sample_rate))
                 
-                # if(audio_np.shape[0] > 0):
+                if(audio_np.shape[0] > 0):
+                    print(f"[DEBUG] 수신된 청크 확인 : {audio_np[1:20]}")
                 #     print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {user.audio_queue.qsize()}, sample rate: {sample_rate}, speaker info: {speaker_name}")
             except Exception as e:
                 print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
