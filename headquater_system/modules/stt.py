@@ -9,6 +9,7 @@ import soundfile as sf
 import queue
 import webrtcvad
 import threading
+
 from config import SAMPLE_RATE, DEFAULT_LANGUAGE, CLIENT
 from modules.audio import audio_queue
 from modules.utils import sanitize_language_code, get_log_filenames
@@ -64,6 +65,10 @@ def stt_processing_thread(audio_queue, sentence_queue, transcription_queue, reco
     while True:
         try:
             data = audio_queue.get(timeout=1)
+            # 앞으로 이 코드로 바꿔줘야됨
+            # data, sample_rate, user = audio_queue.get(timeout=1)
+            # source_lang = user.source_lang
+            # target_lang = user.target_lang
             buffer = np.concatenate((buffer, data), axis=0)
             current_time = time.time()
             amplitude = np.mean(np.abs(data))
