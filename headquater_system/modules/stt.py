@@ -56,11 +56,16 @@ def detect_language(audio_path):
 
 def stt_processing_thread(audio_queue, sentence_queue, transcription_queue, recording_active, target_language):
     global detected_language
-    buffer = np.zeros((0, 1), dtype=np.float32)
-    silence_threshold = 0.02
+    buffer = np.zeros((0, 1), dtype=np.float32) 
+    silence_threshold = 0.02 
     silence_duration_threshold = 0.5 # 실시간성 고려
     silence_start = None
     language_detected_once = False
+
+    queue_threshold = 10 # 10개 이상의 오디오 청크가 쌓였을 때 처리
+    max_wait_time = 2 # 최대 2초 이상 기다리면 강제로 처리
+    last_process_time = time.time()
+    audio_chunk_count = 0
 
     while True:
         try:
@@ -72,49 +77,69 @@ def stt_processing_thread(audio_queue, sentence_queue, transcription_queue, reco
             buffer = np.concatenate((buffer, data), axis=0)
             current_time = time.time()
             amplitude = np.mean(np.abs(data))
+            audio_chunk_count += 1
+
+            process_buffer = False
+
+            # 침묵 감지
             if amplitude < silence_threshold:
                 if silence_start is None:
                     silence_start = current_time
                 elif current_time - silence_start >= silence_duration_threshold:
-                    if len(buffer) > int(SAMPLE_RATE * 0.5):
-                        if not is_speech(buffer):
-                            buffer = np.zeros((0, 1), dtype=np.float32)
-                            silence_start = None
-                            audio_queue.task_done()
-                            continue
-                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                            sf.write(f.name, buffer, SAMPLE_RATE, format='WAV', subtype='PCM_16')  
-                            if not language_detected_once:
-                                lang_code = detect_language(f.name)
-                                if lang_code:
-                                    with language_lock:
-                                        detected_language = lang_code
-                                    language_detected_once = True
-
-                            with language_lock:
-                                current_lang = detected_language if detected_language is not None else DEFAULT_LANGUAGE
-                            with open(f.name, "rb") as audio_file:
-                                response = CLIENT.audio.transcriptions.create(
-                                    model="whisper-1",
-                                    file=audio_file,
-                                    language=current_lang,
-                                    prompt="We're now on meeting. Please transcribe exactly what you hear."
-                                )
-                            os.unlink(f.name)
-                        text = response.text.strip()
-                        if text:
-                            print(f"[DEBUG] STT 결과: {text}")
-                            source_log, _ = get_log_filenames(detected_language, target_language)
-                            with open(source_log, "a", encoding="utf-8") as f:
-                                f.write(text + "\n")
-                            with language_lock:
-                                src_lang = detected_language if detected_language is not None else DEFAULT_LANGUAGE
-                            sentence_queue.put((text, src_lang))
-                            transcription_queue.put((text, src_lang))
-                    buffer = np.zeros((0, 1), dtype=np.float32)
-                    silence_start = None
+                    process_buffer = True
             else:
                 silence_start = None
+
+            # 큐 임계값 도달
+            if audio_chunk_count >= queue_threshold:
+                process_buffer = True
+
+            # 최대 대기 시간 초과
+            if current_time - last_process_time >= max_wait_time:
+                process_buffer = True
+
+            if process_buffer:
+                if len(buffer) > int(SAMPLE_RATE * 0.5):
+                    if not is_speech(buffer):
+                        buffer = np.zeros((0, 1), dtype=np.float32)
+                        silence_start = None
+                        audio_queue.task_done()
+                        continue
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                        sf.write(f.name, buffer, SAMPLE_RATE, format='WAV', subtype='PCM_16')
+                        if not language_detected_once:
+                            lang_code = detect_language(f.name)
+                            if lang_code:
+                                with language_lock:
+                                    detected_language = lang_code
+                                language_detected_once = True
+                        with language_lock:
+                            current_lang = detected_language if detected_language is not None else DEFAULT_LANGUAGE
+                        with open(f.name, "rb") as audio_file:
+                            response = CLIENT.audio.transcriptions.create(
+                                model="whisper-1",
+                                file=audio_file,
+                                language=current_lang,
+                                prompt="We're now on meeting. Please transcribe exactly what you hear."
+                            )
+                        os.unlink(f.name)
+                    text = response.text.strip()
+                    text = response.text.strip()
+                    if text:
+                        print(f"[DEBUG] STT 결과: {text}")
+                        source_log, _ = get_log_filenames(detected_language, target_language)
+                        with open(source_log, "a", encoding="utf-8") as f:
+                            f.write(text + "\n")
+                        with language_lock:
+                            src_lang = detected_language if detected_language is not None else DEFAULT_LANGUAGE
+                        sentence_queue.put((text, src_lang))
+                        transcription_queue.put((text, src_lang))
+                buffer = np.zeros((0, 1), dtype=np.float32)
+                audio_chunk_count = 0
+                last_process_time = current_time
             audio_queue.task_done()
         except queue.Empty:
+            # 큐가 비어있을 때는 아무것도 하지 않음
             continue
+        except Exception as e:
+            print(f"STT 처리 중 오류 발생: {e}", file=sys.stderr)
