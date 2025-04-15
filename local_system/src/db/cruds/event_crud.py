@@ -7,8 +7,8 @@ from ..models import EventModel
 from ..schemas import EventCreate, EventInDB
 
 
-async def create_event(db: AsyncSession, type: str, value: str) -> EventInDB:
-    db_event = EventModel(type=type, value=value, time=datetime.now())
+async def create_event(db: AsyncSession, type: str, value: str, sensor_data: str) -> EventInDB:
+    db_event = EventModel(type=type, value=value, sensor_data=sensor_data, time=datetime.now())
     db.add(db_event)
     await db.commit()
     await db.refresh(db_event)

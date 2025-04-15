@@ -18,10 +18,15 @@ router = APIRouter()
 
 @router.post("/create_event")
 async def create_event_router(
-    type: str, value: str, db: AsyncSession = Depends(get_db)
+    type: str,
+    value: str,
+    sensor_data: str,  # ✅ 추가
+    db: AsyncSession = Depends(get_db)
 ):
-    event = await create_event(db, type, value)
+    event = await create_event(db, type, value, sensor_data)  # ✅ sensor_data 전달
     return event
+
+
 
 
 @router.get("/event/{event_id}")
