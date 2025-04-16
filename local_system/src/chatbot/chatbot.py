@@ -58,6 +58,3 @@ class ChatBot:
         )
 
         return answer
-
-
-chatbot = ChatBot()
