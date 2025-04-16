@@ -4,6 +4,7 @@ import io
 import sys
 import queue
 import tempfile
+import base64
 import sounddevice as sd
 import soundfile as sf
 from pathlib import Path
@@ -92,3 +93,34 @@ def tts_thread(translation_queue, recording_active):
             
         except queue.Empty:
             continue
+
+def tts_process(translation):
+    print(f"[TTS] 합성할 텍스트: {translation}")
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+            temp_audio_path = Path(temp_file.name)
+            print(f"[DEBUG] TTS 임시 파일 경로: {temp_audio_path}")
+
+       # TTS API 호출 (model="tts-1") – CLIENT.audio.speech.with_streaming_response.create 사용
+        with CLIENT.audio.speech.with_streaming_response.create(
+            model="tts-1",      # TTS 처리 모델: tts-1
+            voice="nova",       # 선택 옵션 (원하는 목소리로 설정)
+            input=translation,
+            # instructions="Optional additional instructions"  # 필요 시 추가 지침
+        ) as response:
+            response.stream_to_file(temp_audio_path)
+        
+        # 생성된 음성 파일을 binary 모드로 읽은 후 base64로 인코딩
+        with open(str(temp_audio_path), "rb") as audio_file:
+            audio_bytes = audio_file.read()
+        base64_audio = base64.b64encode(audio_bytes).decode('utf-8')
+        print(f"[DEBUG] TTS 음성이 base64로 인코딩됨 (길이: {len(base64_audio)} 문자)")
+        
+        # 임시 파일 삭제
+        os.unlink(str(temp_audio_path))
+        
+        # tts_result_queue에 base64 인코딩 음성 데이터를 저장
+        return base64_audio
+    except Exception as e:
+        print(f"TTS 오류: {e}", file=sys.stderr)
+        return ""

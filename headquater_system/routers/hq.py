@@ -128,16 +128,10 @@ async def stt_audio_endpoint(payload: STTPayload):
 
     while timeout > waited:
         try:
-            # user.final_results_queue
-            transcription, translation = user.final_results_queue.get_nowait()
-            # # 두 큐 모두에서 결과를 꺼낼 수 있으면 결합
-            # # transcription_queue와 translated_queue는 튜플 (text, src_lang)를 담고 있다고 가정
-            # transcription_tuple = user.transcription_queue.get_nowait()
-            # translation_tuple = user.translated_queue.get_nowait()
-            
-            # # 튜플이면 첫 번째 요소만 추출
-            # transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
-            # translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
+            # (stt 결과, 번역 결과, tts 음성(mp3 -> base64로 인코딩))
+            # tts는 웹 프론트에 맞춰 구현 필요
+            transcription, translation, _ = user.final_results_queue.get_nowait()
+ 
             print(f"전사결과: {transcription}\n번역결과:{translation}")
             combined_results.append({
                 "speaker": speaker_name,
@@ -145,8 +139,7 @@ async def stt_audio_endpoint(payload: STTPayload):
                 "translation": translation
             })
             user.final_results_queue.task_done()
-            # user.transcription_queue.task_done()
-            # user.translated_queue.task_done()
+
             break  # 결과를 받았으므로 종료
         except queue.Empty:
             # 결과가 아직 없다면 잠시 대기
@@ -299,9 +292,6 @@ async def result_sender_combined_task(sessionId: str = None):
                 current_users = list(users.values())
                 
         for user in current_users:
-            if user.websocket is None:
-                continue  # 연결이 없는 사용자 건너뛰기
-            
             # 두 큐에 모두 결과가 있는지 확인합니다.
             if not user.transcription_queue.empty() and not user.translated_queue.empty():
                 # transcription_queue에서 원문 결과를 translated_queue에서 번역 결과를 꺼냅니다.
