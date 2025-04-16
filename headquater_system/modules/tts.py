@@ -1,14 +1,64 @@
 # modules/tts.py
-
+import os
+import io
 import sys
 import queue
 import tempfile
-import os
 import sounddevice as sd
 import soundfile as sf
 from pathlib import Path
 from config import CLIENT
-import io
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- API 엔드포인트용 함수 ---
+def generate_tts_audio(text_to_speak: str, voice: str = "nova", model: str = "tts-1") -> bytes:
+    """
+    주어진 텍스트에 대한 TTS 오디오(MP3)를 생성하고 바이트 데이터를 반환합니다.
+
+    Args:
+        text_to_speak: 음성으로 변환할 텍스트.
+        voice: 사용할 음성 (OpenAI에서 지원하는 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer' 등).
+        model: 사용할 TTS 모델 ('tts-1', 'tts-1-hd').
+
+    Returns:
+        MP3 오디오 데이터 바이트.
+
+    Raises:
+        ValueError: 텍스트 입력이 비어있을 경우.
+        RuntimeError: OpenAI API 호출 또는 오디오 생성 중 오류 발생 시.
+    """
+    if not text_to_speak:
+        logger.error("TTS 오류: 입력 텍스트가 비어 있습니다.")
+        raise ValueError("TTS를 위한 텍스트 입력이 비어있습니다.")
+
+    try:
+        logger.info(f"[TTS API] 텍스트 음성 변환 요청: '{text_to_speak[:50]}...' (Voice: {voice}, Model: {model})")
+        audio_buffer = io.BytesIO() # 메모리 내 오디오 버퍼
+
+        # OpenAI TTS API 호출 (스트리밍 방식)
+        with CLIENT.audio.speech.with_streaming_response.create(
+            model=model,
+            voice=voice,
+            input=text_to_speak,
+            response_format="mp3" # 출력 포맷 지정
+        ) as response:
+            # 스트리밍 데이터를 메모리 버퍼에 기록
+            for chunk in response.iter_bytes(chunk_size=4096):
+                audio_buffer.write(chunk)
+
+        audio_buffer.seek(0) # 버퍼의 시작점으로 포인터 이동
+        audio_bytes = audio_buffer.getvalue() # 전체 오디오 바이트 데이터 가져오기
+        logger.info(f"[TTS API] 오디오 생성 완료 (크기: {len(audio_bytes)} 바이트)")
+        return audio_bytes
+
+    except Exception as e:
+        logger.exception(f"TTS API 오류: 텍스트 '{text_to_speak[:50]}...' 변환 중 오류 발생. 오류: {e}")
+        # 발생한 예외를 상위 호출자(API 엔드포인트)에게 전달
+        raise RuntimeError(f"TTS 오디오 생성 실패: {e}") from e
+
 
 def tts_thread(translation_queue, recording_active):
     while True:
@@ -42,37 +92,3 @@ def tts_thread(translation_queue, recording_active):
             
         except queue.Empty:
             continue
-
-# --- API 엔드포인트용 새 함수 ---
-def generate_tts_audio(text_to_speak: str) -> bytes:
-    """
-    주어진 텍스트에 대한 TTS 오디오를 생성하고 MP3 바이트를 반환합니다.
-    API 요청 처리에 사용됩니다.
-    """
-    if not text_to_speak:
-        raise ValueError("TTS를 위한 텍스트 입력이 비어있습니다.")
-
-    try:
-        print(f"[TTS API] 요청 텍스트: '{text_to_speak}'")
-        audio_buffer = io.BytesIO() # 오디오 데이터를 메모리에 저장할 버퍼
-
-        # OpenAI TTS API 호출 (스트리밍)
-        with CLIENT.audio.speech.with_streaming_response.create(
-            model="tts-1", # 사용하는 모델 확인
-            voice="nova",
-            input=text_to_speak,
-            response_format="mp3" # 오디오 포맷 지정
-        ) as response:
-            # 스트리밍된 데이터를 메모리 버퍼에 씁니다.
-            for chunk in response.iter_bytes(chunk_size=4096):
-                audio_buffer.write(chunk)
-
-        audio_buffer.seek(0) # 버퍼 포인터를 처음으로 이동
-        audio_bytes = audio_buffer.getvalue() # 버퍼의 전체 바이트 데이터 가져오기
-        print(f"[TTS API] 오디오 생성 완료 (크기: {len(audio_bytes)} bytes)")
-        return audio_bytes
-
-    except Exception as e:
-        print(f"TTS API 생성 오류: {e}", file=sys.stderr)
-        # 오류를 다시 발생시켜 API 엔드포인트에서 처리하도록 함
-        raise RuntimeError(f"TTS 오디오 생성 실패: {e}") from e

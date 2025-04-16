@@ -1,13 +1,14 @@
 # routers/hq.py
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Body, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, Field
 from datetime import datetime
 import threading, queue, tempfile, os, io, time, asyncio, sys
 import numpy as np
 import soundfile as sf
 import base64
 import ffmpeg
+import logging
 
 # 모듈 import
 from modules.stt import stt_processing_thread
@@ -16,6 +17,8 @@ from modules.translation import translation_thread
 from modules.audio import recording_active
 from modules.user import get_or_create_user, users_lock, users
 from config import CLIENT  # 필요 시 사용
+
+logger = logging.getLogger(__name__)
 
 # 라우터 생성 및 본사 시스템용 API prefix 설정
 hq_router = APIRouter(prefix="/ai/hq")
@@ -35,14 +38,16 @@ class CombinedResult(BaseModel):
 
 class CombinedResultsResponse(BaseModel):
     results: list[CombinedResult]
+    
+class TTSRequest(BaseModel):
+    text: str = Field(..., description="음성으로 변환할 텍스트", example="안녕하세요, FacMan 시스템입니다.")
+    voice: str = Field("nova", description="사용할 음성 (예: 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer')", example="nova")
+    model: str = Field("tts-1", description="사용할 TTS 모델 (예: 'tts-1', 'tts-1-hd')", example="tts-1")
 
 # 최신 결과 저장 변수
 latest_transcription = ""
 latest_translation = ""
 date_log = ""
-
-class TTSRequest(BaseModel):
-    text: str
 
 # 백그라운드 작업들을 시작하는 startup 이벤트 핸들러
 @hq_router.on_event("startup")
@@ -370,16 +375,36 @@ async def get_translation():
     return JSONResponse({"text": latest_translation})
 
 # 4. TTS 결과 반환 API
-@hq_router.post("/tts")
-async def tts_api(request: TTSRequest):
+@hq_router.post(
+    "/tts",
+    response_class=StreamingResponse, # 응답 타입을 StreamingResponse로 명시
+    summary="텍스트 음성 변환 (MP3)",
+    description="입력된 텍스트를 지정된 목소리와 모델을 사용하여 MP3 오디오 스트림으로 변환하여 반환합니다.",
+    responses={
+        200: {"content": {"audio/mpeg": {}}, "description": "성공적으로 MP3 오디오 스트림 반환"},
+        400: {"description": "잘못된 요청 (예: 텍스트 누락)"},
+        500: {"description": "서버 내부 오류 (TTS 생성 실패 등)"}
+    }
+)
+async def tts_api(request: TTSRequest = Body(...)):
+    """
+    FastAPI 엔드포인트: 텍스트를 받아 MP3 오디오 스트림을 생성합니다.
+    """
     try:
-        if not request.text:
-            return JSONResponse(status_code=400, content={"error": "텍스트가 비어 있습니다."})
-        loop = asyncio.get_running_loop()
-        print(f"[HQ /api/tts] 요청 수신: '{request.text}'")
-        audio_bytes = await loop.run_in_executor(None, generate_tts_audio, request.text)
-        print(f"[HQ /api/tts] 오디오 스트림 응답 생성")
+        logger.info(f"/ai/hq/tts 요청 수신: Text='{request.text[:50]}...', Voice={request.voice}, Model={request.model}")
+        audio_bytes = generate_tts_audio(request.text, request.voice, request.model)
+        logger.info(f"오디오 데이터 생성 완료 ({len(audio_bytes)} bytes)")
+
+        # 생성된 오디오 바이트를 스트리밍 응답으로 반환
         return StreamingResponse(io.BytesIO(audio_bytes), media_type="audio/mpeg")
+
+    except ValueError as ve:
+        logger.warning(f"TTS 요청 오류 (400): {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except RuntimeError as re:
+        logger.error(f"TTS 생성 서버 오류 (500): {re}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"TTS 오디오 생성 실패: {str(re)}")
     except Exception as e:
-        print(f"[HQ Error] TTS 엔드포인트에서 오류: {e}")
-        return JSONResponse(status_code=500, content={"error": f"서버 내부 오류 발생: {str(e)}"})
+        logger.exception(f"/ai/hq/tts 엔드포인트 처리 중 예외 발생: {e}")
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류 발생: {str(e)}")
+
