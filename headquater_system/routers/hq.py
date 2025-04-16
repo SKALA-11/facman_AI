@@ -451,11 +451,6 @@ async def tts_api(request: TTSRequest = Body(...)):
         logger.error(f"TTS 생성 서버 오류 (500): {re}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"TTS 오디오 생성 실패: {str(re)}")
     except Exception as e:
-<<<<<<< HEAD
         logger.exception(f"/ai/hq/tts 엔드포인트 처리 중 예외 발생: {e}")
         raise HTTPException(status_code=500, detail=f"서버 내부 오류 발생: {str(e)}")
 
-=======
-        print(f"[HQ Error] TTS 엔드포인트에서 오류: {e}")
-        return JSONResponse(status_code=500, content={"error": f"서버 내부 오류 발생: {str(e)}"})
->>>>>>> 520f266 (refactor: OpenAI 클라이언트 초기화 및 TTS 기능 개선)
