@@ -100,9 +100,9 @@ async def stt_audio_endpoint(payload: STTPayload):
     while True:
         try:
             # 두 큐 모두에서 결과를 꺼낼 수 있으면 결합
-            print(f"전사결과: {transcription}\n번역결과:{translation}")
             transcription = user.transcription_queue.get_nowait()
             translation = user.translated_queue.get_nowait()
+            print(f"전사결과: {transcription}\n번역결과:{translation}")
             combined_results.append({
                 "speaker": speaker_name,
                 "transcription": transcription,
