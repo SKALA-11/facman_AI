@@ -115,8 +115,13 @@ async def stt_audio_endpoint(payload: STTPayload):
     while True:
         try:
             # 두 큐 모두에서 결과를 꺼낼 수 있으면 결합
-            transcription = user.transcription_queue.get_nowait()
-            translation = user.translated_queue.get_nowait()
+            # transcription_queue와 translated_queue는 튜플 (text, src_lang)를 담고 있다고 가정
+            transcription_tuple = user.transcription_queue.get_nowait()
+            translation_tuple = user.translated_queue.get_nowait()
+            
+            # 튜플이면 첫 번째 요소만 추출
+            transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
+            translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
             print(f"전사결과: {transcription}\n번역결과:{translation}")
             combined_results.append({
                 "speaker": speaker_name,
@@ -316,9 +321,12 @@ async def result_sender_combined_task():
             # 두 큐에 모두 결과가 있는지 확인합니다.
             if not user.transcription_queue.empty() and not user.translated_queue.empty():
                 # transcription_queue에서 원문 결과를 translated_queue에서 번역 결과를 꺼냅니다.
-                transcription = user.transcription_queue.get()
-                translation = user.translated_queue.get()
+                transcription_tuple = user.transcription_queue.get_nowait()
+                translation_tuple = user.translated_queue.get_nowait()
                 
+                # 튜플이면 첫 번째 요소만 추출
+                transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
+                translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
                 # 결합된 메시지 구성
                 combined_message = {
                     "speaker": user.name,
