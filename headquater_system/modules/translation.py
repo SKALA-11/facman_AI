@@ -66,7 +66,7 @@ def translation_thread(user):
             print(f"[DEBUG] {user.name} 번역 처리 중 오류 발생: {e}", file=sys.stderr)
             time.sleep(0.1)
 
-def translation(user, text):
+def translation_process(user, text):
     """
     메시지를 받아 해당 메시지를 사용자의 target_lang으로 번역한 결과를
     user.translation_queue 및 user.translated_queue에 넣습니다.

@@ -13,7 +13,7 @@ import threading
 from config import DEFAULT_LANGUAGE, CLIENT
 from modules.utils import sanitize_language_code, get_log_filenames
 from modules.dispatcher import dispatch_transcription
-from modules.translation import translation
+from modules.translation import translation_process
 
 # 전역 변수 (필요 시 메인에서 관리)
 language_lock = threading.Lock()
@@ -138,7 +138,7 @@ def stt_processing_thread(user):
                     # transcription_result = (speaker_info, text)
                     
                     try:
-                        translation = translation(user, text)
+                        translation = translation_process(user, text)
                     except Exception as te:
                         print(f"[DEBUG] {user.name} 번역 호출 중 오류: {te}", file=sys.stderr)
                         translation = ""
