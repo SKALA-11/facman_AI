@@ -14,6 +14,7 @@ app = FastAPI(
     title="FacMan AI HQ System",
     description="STT, 번역, TTS 기능을 제공하는 API 시스템",
     version="1.0.0",
+    docs_url='/ai/hq/docs'
 )
 
 # CORS 설정: 실제 배포 환경에 맞게 Vue.js 도메인 지정 필요
