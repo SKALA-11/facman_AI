@@ -61,23 +61,43 @@ def stt_processing_thread(user):
 
     while True:
         try:
-            # user.audio_queue에 (audio_np, sample_rate) 형태의 데이터를 넣었다고 가정
-            data_tuple = user.audio_queue.get(timeout=1)
-            if isinstance(data_tuple, tuple):
-                data, sample_rate = data_tuple
-            else:
-                data = data_tuple
+            chunks = []
+            try:
+                data_tuple = user.audio_queue.get_nowait()
+                # data_tuple은 (audio_np, sample_rate) 형태로 들어온다고 가정.
+                if isinstance(data_tuple, tuple):
+                    data, sample_rate = data_tuple
+                else:
+                    data = data_tuple
+                chunks.append(data)
+                user.audio_queue.task_done()
+            except queue.Empty:
+                break
+            
+            # 데이터가 하나도 없는 경우 루프를 다시 돌며 대기합니다.
+            if not chunks:
+                time.sleep(0.1)
+                continue
+
+            # 2. 모든 청크를 하나의 배열로 결합 (세로 방향(concatenate axis=0))
+            combined_data = np.concatenate(chunks, axis=0)
+
+            # # user.audio_queue에 (audio_np, sample_rate) 형태의 데이터를 넣었다고 가정
+            # data_tuple = user.audio_queue.get(timeout=1)
+            # if isinstance(data_tuple, tuple):
+            #     data, sample_rate = data_tuple
+            # else:
+            #     data = data_tuple
 
             # Optional: 음성 체크 (is_speech) – 파일 전체에 대해서 음성의 유무를 판단
-            if len(data) < int(SAMPLE_RATE * 0.5) or not is_speech(data):
+            if len(combined_data) < int(sample_rate * 0.5) or not is_speech(data):
                 print(f"[DEBUG] {user.name} - 음성 없음 또는 너무 짧은 발화")
                 user.audio_queue.task_done()
                 continue
                 
-            
             # 임시 파일에 저장하여 STT 처리 (Whisper API 호출)
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                sf.write(f.name, data, SAMPLE_RATE, format='WAV', subtype='PCM_16')
+                sf.write(f.name, data, sample_rate, format='WAV', subtype='PCM_16')
                 # 최초 한 번 언어 감지 (필요 시)
                 # if user.detected_language is None:
                 #     lang_code = detect_language(f.name)
