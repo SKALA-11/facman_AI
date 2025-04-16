@@ -453,4 +453,3 @@ async def tts_api(request: TTSRequest = Body(...)):
     except Exception as e:
         logger.exception(f"/ai/hq/tts 엔드포인트 처리 중 예외 발생: {e}")
         raise HTTPException(status_code=500, detail=f"서버 내부 오류 발생: {str(e)}")
-
