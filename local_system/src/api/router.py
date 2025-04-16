@@ -20,10 +20,9 @@ router = APIRouter()
 async def create_event_router(
     type: str,
     value: str,
-    sensor_data: str,  # ✅ 추가
     db: AsyncSession = Depends(get_db)
 ):
-    event = await create_event(db, type, value, sensor_data)  # ✅ sensor_data 전달
+    event = await create_event(db, type, value, ) 
     return event
 
 

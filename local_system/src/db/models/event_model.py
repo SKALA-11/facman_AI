@@ -11,7 +11,6 @@ class EventModel(Base):
     type = Column(Text, nullable=False)
     value = Column(Text, nullable=False)
     time = Column(DateTime, default=datetime.now, nullable=False)
-    sensor_data = Column(Text, nullable=True)
 
     event_details = relationship(
         "EventDetailModel", back_populates="event", cascade="all, delete-orphan"
