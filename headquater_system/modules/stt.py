@@ -115,10 +115,11 @@ def stt_processing_thread(user):
                         "name": user.name,
                         "language": user.source_lang
                     }
-                    
+                    unique_id = str(time.time_ns())
+
                     # 전사 결과를 tuple로 묶음
-                    user.sentence_queue.put((text, src_lang))
-                    user.transcription_queue.put((text, src_lang))
+                    user.sentence_queue.put((text, unique_id))
+                    user.transcription_queue.put((text, unique_id))
                     # transcription_result = (speaker_info, text)
                     
                     # 전역 디스패처 함수(예: dispatch_transcription)를 호출하여 결과를 모든 사용자에게 분배

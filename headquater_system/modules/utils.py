@@ -9,7 +9,8 @@ language_map = {
     "es": "스페인어",
     "fr": "프랑스어",
     "de": "독일어",
-    "ru": "러시아어"
+    "ru": "러시아어",
+    "tr": "튀르키예어"
 }
 
 # 풀네임 또는 한글명 -> ISO-639-1 코드 보정을 위한 alias
@@ -22,6 +23,7 @@ language_aliases = {
     "french": "fr",
     "german": "de",
     "russian": "ru",
+    "turkish": "tr",
     "영어": "en",
     "한국어": "ko",
     "일본어": "ja",
@@ -29,7 +31,9 @@ language_aliases = {
     "스페인어": "es",
     "프랑스어": "fr",
     "독일어": "de",
-    "러시아어": "ru"
+    "러시아어": "ru",
+    "터키어": "tr",
+    "튀르키예어": "tr"
 }
 
 def sanitize_language_code(lang):
