@@ -67,6 +67,7 @@ async def stt_audio_endpoint(payload: STTPayload):
     source_lang = speaker_info.get("speakerLang", "ko")
     target_lang = speaker_info.get("targetLang", "en")
     
+    print(f"{speaker_name}: src{source_lang}, tar{target_lang}")
     # 타임스탬프 처리
     timestamp = payload.timestamp if payload.timestamp is not None else int(time.time() * 1000)
     if not date_log:
@@ -96,9 +97,10 @@ async def stt_audio_endpoint(payload: STTPayload):
     poll_interval = 0.2  # 200ms 간격으로 폴링
     waited = 0.0
 
-    while waited < timeout:
+    while True:
         try:
             # 두 큐 모두에서 결과를 꺼낼 수 있으면 결합
+            print(f"전사결과: {transcription}\n번역결과:{translation}")
             transcription = user.transcription_queue.get_nowait()
             translation = user.translated_queue.get_nowait()
             combined_results.append({
