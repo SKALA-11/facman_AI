@@ -13,6 +13,7 @@ RUN apt-get update && \
         python3-dev \
         libportaudio2 \
         portaudio19-dev \
+        ffmpeg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
