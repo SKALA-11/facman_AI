@@ -22,6 +22,8 @@ class User:
         self.transcription_queue = queue.Queue()
         self.translation_queue = queue.Queue()
         self.translated_queue = queue.Queue()
+        
+        self.final_results_queue = queue.Queue()
 
         self.websocket = None
 

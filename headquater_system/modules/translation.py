@@ -6,46 +6,6 @@ from modules.utils import language_map, get_log_filenames
 from config import CLIENT
 import sys
 
-# def translation_thread(sentence_queue, translation_queue, translated_queue, target_language):
-#     while True:
-#         try:
-#             sentence_data = sentence_queue.get(timeout=1)
-#             if isinstance(sentence_data, tuple):
-#                 sentence, source_lang = sentence_data
-#             else:
-#                 sentence = sentence_data
-#                 source_lang = "ko"
-#             print(f"[DEBUG] 번역할 문장: {sentence} (소스 언어: {source_lang})")
-#             if source_lang == target_language:
-#                 print("[DEBUG] 소스 언어와 타겟 언어 동일, 번역 건너뜀")
-#                 translation_queue.put(sentence)
-#                 sentence_queue.task_done()
-#                 continue
-#             try:
-#                 source_name = language_map.get(source_lang, "감지된 언어")
-#                 target_name = language_map.get(target_language, "영어")
-#                 response = CLIENT.chat.completions.create(
-#                     model="gpt-4o-mini",
-#                     messages=[
-#                         {"role": "system", "content": f"Translate the following text from {source_name} to {target_name}. Only provide the translation without any additional explanation."},
-#                         {"role": "user", "content": sentence}
-#                     ]
-#                 )
-#                 translation = response.choices[0].message.content.strip()
-#                 print(f"[DEBUG] 번역 결과: {translation}")
-#             except Exception as e:
-#                 print(f"번역 오류: {e}", file=sys.stderr)
-#                 translation = ""
-#             if translation:
-#                 _, target_log = get_log_filenames(source_lang, target_language)
-#                 with open(target_log, "a", encoding="utf-8") as f:
-#                     f.write(translation + "\n")
-#                 translation_queue.put(translation)
-#                 translated_queue.put(translation)
-#             sentence_queue.task_done()
-#         except queue.Empty:
-#             continue
-
 def translation_thread(user):
     """
     사용자 객체의 sentence_queue에서 메시지를 받아, 
@@ -105,3 +65,46 @@ def translation_thread(user):
         except Exception as e:
             print(f"[DEBUG] {user.name} 번역 처리 중 오류 발생: {e}", file=sys.stderr)
             time.sleep(0.1)
+
+def translation(user, text):
+    """
+    메시지를 받아 해당 메시지를 사용자의 target_lang으로 번역한 결과를
+    user.translation_queue 및 user.translated_queue에 넣습니다.
+    """
+    try:
+        # 만약 메시지의 원본 언어와 자신의 대상 언어가 같다면 번역하지 않고 그대로 전달
+        if user.source_lang == user.target_lang:
+            print(f"[DEBUG] {user.name} 소스 언어와 타겟 언어가 동일하여 번역 없이 전송")
+            return text
+            
+        # 번역 API 호출 (예시: GPT-4o-mini 번역 요청)
+        try:
+            source_name = language_map.get(user.source_lang, "감지된 언어")
+            target_name = language_map.get(user.target_lang)
+            response = CLIENT.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": f"Translate the following text from {source_name} to {target_name}. Only provide the translation without any additional explanation."},
+                    {"role": "user", "content": text}
+                ]
+            )
+            translation = response.choices[0].message.content.strip()
+            print(f"[DEBUG] {user.name} 번역 결과: {translation}")
+        except Exception as e:
+            print(f"[DEBUG] {user.name} 번역 오류: {e}", file=sys.stderr)
+            translation = text
+        
+        if translation:
+            # 로그 저장 (기존 get_log_filenames 함수 활용)
+            _, target_log = get_log_filenames(user.source_lang, user.target_lang)
+            try:
+                with open(target_log, "a", encoding="utf-8") as f:
+                    f.write(translation + "\n")
+            except Exception as log_e:
+                print(f"[DEBUG] {user.name} 로그 저장 오류: {log_e}", file=sys.stderr)
+            # 사용자 전용 큐에 결과 저장
+            return translation
+
+    except Exception as e:
+        print(f"[DEBUG] {user.name} 번역 처리 중 오류 발생: {e}", file=sys.stderr)
+        return

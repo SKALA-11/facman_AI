@@ -98,11 +98,11 @@ async def stt_audio_endpoint(payload: STTPayload):
             args=(user,),  # user 내부의 audio_queue 등 사용
             daemon=True
         ).start()
-        threading.Thread(
-            target=translation_thread,
-            args=(user,),  # 사용자별 처리 로직으로 수정
-            daemon=True
-        ).start()
+        # threading.Thread(
+        #     target=translation_thread,
+        #     args=(user,),  # 사용자별 처리 로직으로 수정
+        #     daemon=True
+        # ).start()
         user.processing_started = True
     
     # audioData 디코딩 및 PCM 데이터 변환 (Int16 -> float32, 정규화, 모노 재배열)
@@ -122,28 +122,31 @@ async def stt_audio_endpoint(payload: STTPayload):
     combined_results = []
     
     # 추가: 최대 timeout초동안 결과가 생성될 때까지 기다리는 예시 (polling)
-    timeout = 30.0  # 최대 대기 시간
+    timeout = 60.0  # 최대 대기 시간
     poll_interval = 0.2  # 200ms 간격으로 폴링
     waited = 0.0
 
     while timeout > waited:
         try:
-            # 두 큐 모두에서 결과를 꺼낼 수 있으면 결합
-            # transcription_queue와 translated_queue는 튜플 (text, src_lang)를 담고 있다고 가정
-            transcription_tuple = user.transcription_queue.get_nowait()
-            translation_tuple = user.translated_queue.get_nowait()
+            # user.final_results_queue
+            transcription, translation = user.final_results_queue.get_nowait()
+            # # 두 큐 모두에서 결과를 꺼낼 수 있으면 결합
+            # # transcription_queue와 translated_queue는 튜플 (text, src_lang)를 담고 있다고 가정
+            # transcription_tuple = user.transcription_queue.get_nowait()
+            # translation_tuple = user.translated_queue.get_nowait()
             
-            # 튜플이면 첫 번째 요소만 추출
-            transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
-            translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
+            # # 튜플이면 첫 번째 요소만 추출
+            # transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
+            # translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
             print(f"전사결과: {transcription}\n번역결과:{translation}")
             combined_results.append({
                 "speaker": speaker_name,
                 "transcription": transcription,
                 "translation": translation
             })
-            user.transcription_queue.task_done()
-            user.translated_queue.task_done()
+            user.final_results_queue.task_done()
+            # user.transcription_queue.task_done()
+            # user.translated_queue.task_done()
             break  # 결과를 받았으므로 종료
         except queue.Empty:
             # 결과가 아직 없다면 잠시 대기
@@ -281,46 +284,6 @@ async def result_sender_task():
                         print(f"[DEBUG] {user.name}에게 메시지 전송 오류: {ex}")
                     user.translated_queue.task_done()
         await asyncio.sleep(0.2)
-
-
-# 전사 결과 전송 태스크: 각 사용자 객체의 transcription_queue에 쌓인 메시지를 해당 사용자의 웹소켓으로 전송
-async def result_sender_transcription_task():
-    while True:
-        # Lock을 최소화하기 위해 사용자 리스트를 먼저 복사합니다.
-        with users_lock:
-            current_users = list(users.values())
-        for user in current_users:
-            if user.websocket is None:
-                continue  # 연결이 없는 사용자는 건너뛰기
-            while not user.transcription_queue.empty():
-                # 예: 메시지 형식은 문자열이거나 (text, lang) 튜플 등으로 보내도 됩니다.
-                message = user.transcription_queue.get()
-                try:
-                    # 여기서 메시지 형식을 클라이언트와 합의한 포맷("type": "transcription", "text": ... )으로 만들 수 있습니다.
-                    await user.websocket.send_json({"type": "transcription", "text": message})
-                    print(f"[DEBUG] {user.name} 전사 메시지 전송 완료: {message}")
-                except Exception as ex:
-                    print(f"[DEBUG] {user.name} 전사 메시지 전송 오류: {ex}")
-                user.transcription_queue.task_done()
-        await asyncio.sleep(1)
-
-# 번역 결과 전송 태스크: 각 사용자 객체의 translated_queue에 쌓인 메시지를 해당 사용자의 웹소켓으로 전송
-async def result_sender_translation_task():
-    while True:
-        with users_lock:
-            current_users = list(users.values())
-        for user in current_users:
-            if user.websocket is None:
-                continue
-            while not user.translated_queue.empty():
-                message = user.translated_queue.get()
-                try:
-                    await user.websocket.send_json({"type": "translation", "text": message})
-                    print(f"[DEBUG] {user.name} 번역 메시지 전송 완료: {message}")
-                except Exception as ex:
-                    print(f"[DEBUG] {user.name} 번역 메시지 전송 오류: {ex}")
-                user.translated_queue.task_done()
-        await asyncio.sleep(1)
 
 # 결과 전송 태스크: 각 사용자 객체의 transcription_queue와 translated_queue에 쌓인 메시지를 결합하여 해당 사용자의 웹소켓으로 전송하며,
 # 동시에 결과를 텍스트 파일로 기록합니다.
