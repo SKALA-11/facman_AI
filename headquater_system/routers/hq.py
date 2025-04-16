@@ -5,9 +5,7 @@ from pydantic import BaseModel
 from datetime import datetime
 import threading, queue, tempfile, os, io, time, asyncio, sys
 import numpy as np
-import soundfile as sf
 import base64
-import ffmpeg
 
 # 모듈 import
 from modules.stt import stt_processing_thread
@@ -15,15 +13,23 @@ from modules.tts import tts_thread, generate_tts_audio
 from modules.translation import translation_thread
 from modules.audio import recording_active
 from modules.user import get_or_create_user, users_lock, users
+from modules.meeting_transcript import (
+    save_transcript_entry, 
+    generate_meeting_summary, 
+    list_meeting_transcripts, 
+    get_meeting_transcript,
+    get_meeting_summary
+)
 from config import CLIENT  # 필요 시 사용
 
 # 라우터 생성 및 본사 시스템용 API prefix 설정
 hq_router = APIRouter(prefix="/ai/hq")
 
 ### Pydantic 모델 정의 ###
+# Update the STTPayload model to include sessionId in speakerInfo
 class STTPayload(BaseModel):
     type: str
-    speakerInfo: dict
+    speakerInfo: dict  # This will contain sessionId
     audioData: str
     sampleRate: int
     timestamp: int = None
@@ -67,8 +73,9 @@ async def stt_audio_endpoint(payload: STTPayload):
     speaker_name = speaker_info.get("name", "Unknown")
     source_lang = speaker_info.get("speakerLang", "ko")
     target_lang = speaker_info.get("targetLang", "en")
+    session_id = speaker_info.get("sessionId", None)  # Extract sessionId
     
-    print(f"{speaker_name}: src{source_lang}, tar{target_lang}")
+    print(f"{speaker_name}: src{source_lang}, tar{target_lang}, sessionId: {session_id}")
     # 타임스탬프 처리
     timestamp = payload.timestamp if payload.timestamp is not None else int(time.time() * 1000)
     if not date_log:
@@ -170,6 +177,7 @@ async def websocket_endpoint(websocket: WebSocket):
     speaker_name = speaker_info.get("name", "Unknown")
     source_lang = speaker_info.get("speakerLang", "ko")
     target_lang = speaker_info.get("targetLang", "en")
+    session_id = speaker_info.get("sessionId", None)  # Extract sessionId
     
     # 최초 접속 정보만 저장
     time_stamp = initial_data.get("timestamp", time.time_ns() // 1_000_000)
@@ -309,11 +317,17 @@ async def result_sender_translation_task():
 
 # 결과 전송 태스크: 각 사용자 객체의 transcription_queue와 translated_queue에 쌓인 메시지를 결합하여 해당 사용자의 웹소켓으로 전송하며,
 # 동시에 결과를 텍스트 파일로 기록합니다.
-async def result_sender_combined_task():
+@hq_router.get("/result")
+async def result_sender_combined_task(sessionId: str = None):
     while True:
         # Lock을 최소화하기 위해 사용자 리스트를 먼저 복사합니다.
         with users_lock:
-            current_users = list(users.values())
+            if sessionId:
+                # Filter users by sessionId if provided
+                current_users = [user for user in users.values() if user.session_id == sessionId]
+            else:
+                current_users = list(users.values())
+                
         for user in current_users:
             if user.websocket is None:
                 continue  # 연결이 없는 사용자 건너뛰기
@@ -327,12 +341,18 @@ async def result_sender_combined_task():
                 # 튜플이면 첫 번째 요소만 추출
                 transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
                 translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
+                
+                # 현재 시간 정보 추가
+                timestamp = datetime.now().isoformat()
+                
                 # 결합된 메시지 구성
                 combined_message = {
                     "speaker": user.name,
                     "transcription": transcription,
-                    "translation": translation
+                    "translation": translation,
+                    "timestamp": timestamp
                 }
+                
                 try:
                     await user.websocket.send_json(combined_message)
                     print(f"[DEBUG] {user.name} 결합 메시지 전송 완료: {combined_message}")
@@ -342,17 +362,42 @@ async def result_sender_combined_task():
                 user.transcription_queue.task_done()
                 user.translated_queue.task_done()
                 
-                # 결과를 텍스트 파일로 기록합니다.
-                # 아래 내용은 고정 형식의 메시지입니다.
-                try:
-                    with open(f"result_log_{date_log}.txt", "a", encoding="utf-8") as log_file:
-                        log_file.write(f"{user.name}\n"
-                                       f"{transcription}\n"
-                                       f"{translation}\n")
-                    print(f"[DEBUG] {user.name} 텍스트 로그 기록 완료")
-                except Exception as log_ex:
-                    print(f"[DEBUG] {user.name} 텍스트 로그 기록 오류: {log_ex}", file=sys.stderr)
+                # Use the new module to save transcript entry
+                session_id = user.session_id or date_log
+                await save_transcript_entry(
+                    user_name=user.name,
+                    transcription=transcription,
+                    translation=translation,
+                    session_id=session_id,
+                    timestamp=timestamp
+                )
+                
         await asyncio.sleep(1)
+
+# Update the meeting summary endpoint to use the new module
+@hq_router.get("/meeting/summary/{session_id}")
+async def get_or_generate_meeting_summary(session_id: str, generate: bool = False):
+    # First try to get existing summary
+    if not generate:
+        summary_data, status_code = await get_meeting_summary(session_id)
+        if status_code == 200:
+            return JSONResponse(content=summary_data)
+    
+    # Generate new summary if requested or if no existing summary
+    summary_data, status_code = await generate_meeting_summary(session_id)
+    return JSONResponse(status_code=status_code, content=summary_data)
+
+# Update the list transcripts endpoint to use the new module
+@hq_router.get("/meeting/transcripts")
+async def api_list_meeting_transcripts():
+    transcripts_data, status_code = await list_meeting_transcripts()
+    return JSONResponse(status_code=status_code, content=transcripts_data)
+
+# Update the get transcript endpoint to use the new module
+@hq_router.get("/meeting/transcript/{session_id}")
+async def api_get_meeting_transcript(session_id: str):
+    transcript_data, status_code = await get_meeting_transcript(session_id)
+    return JSONResponse(status_code=status_code, content=transcript_data)
 
 # 2. STT 전사 결과 반환
 @hq_router.get("/transcription")
