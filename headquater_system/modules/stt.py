@@ -12,6 +12,7 @@ import threading
 
 from config import SAMPLE_RATE, DEFAULT_LANGUAGE, CLIENT
 from modules.utils import sanitize_language_code, get_log_filenames
+from modules.dispatcher import dispatch_transcription
 
 # 전역 변수 (필요 시 메인에서 관리)
 language_lock = threading.Lock()
@@ -59,7 +60,7 @@ def stt_processing_thread(user):
     """
     buffer = np.zeros((0, 1), dtype=np.float32)
     start_time = None
-    process_threshold_seconds = 1.0
+    process_threshold_seconds = 3.0
     language_detected_once = False
 
     while True:
@@ -115,8 +116,23 @@ def stt_processing_thread(user):
                         with language_lock:
                             src_lang = user.detected_language if user.detected_language is not None else DEFAULT_LANGUAGE
                         # 전사 결과를 사용자 전용 큐에 저장
-                        user.sentence_queue.put((text, src_lang))                            
-                        user.transcription_queue.put((text, src_lang))
+                        # 전사 텍스트가 만들어진 후 (예, text 변수에 있음)
+                        if text:
+                            print(f"[DEBUG] STT 결과: {text}")
+                            # 로그 저장 등 기존 작업 생략 가능...
+
+                            # 발화자 정보를 포함하는 dictionary 생성
+                            speaker_info = {
+                                "connection_id": user.connection_id, 
+                                "name": user.name,
+                                "language": user.detected_language if user.detected_language else user.source_lang
+                            }
+
+                            # 전사 결과를 tuple로 묶음
+                            transcription_result = (speaker_info, text)
+                            
+                            # 전역 디스패처 함수(예: dispatch_transcription)를 호출하여 결과를 모든 사용자에게 분배
+                            dispatch_transcription(speaker_info, text)
                 buffer = np.zeros((0, 1), dtype=np.float32)
                 start_time = None
             user.audio_queue.task_done()

@@ -48,30 +48,29 @@ import sys
 
 def translation_thread(user):
     """
-    사용자 객체의 sentence_queue에서 문장을 가져와 번역을 수행하고,
-    번역 결과를 user.translation_queue 및 user.translated_queue에 넣습니다.
+    사용자 객체의 sentence_queue에서 메시지를 받아, 
+    해당 메시지를 사용자의 target_lang으로 번역한 결과를
+    user.translation_queue 및 user.translated_queue에 넣습니다.
     """
     while True:
         try:
-            # user.sentence_queue에 (sentence, source_lang) 형태의 데이터가 들어있다고 가정
-            sentence_data = user.sentence_queue.get(timeout=1)
-            if isinstance(sentence_data, tuple):
-                sentence, source_lang = sentence_data
-            else:
-                sentence = sentence_data
-                source_lang = user.source_lang  # 기본값으로 사용자의 source_lang 사용
+            # 메시지: {"speaker": speaker_name, "text": text, "source_lang": source_lang}
+            message = user.sentence_queue.get(timeout=1)
+            text = message.get("text")
+            source_lang = message.get("source_lang", user.source_lang)
+            speaker_name = message.get("speaker")
+            
+            print(f"[DEBUG] {user.name}이 번역할 메시지: '{text}' (스피커: {speaker_name}, 소스 언어: {source_lang})")
 
-            print(f"[DEBUG] {user.name} 번역할 문장: {sentence} (소스 언어: {source_lang})")
-
-            # 만약 소스 언어와 사용자의 target_lang이 같다면 번역하지 않고 원문 그대로 전달
+            # 만약 메시지의 원본 언어와 자신의 대상 언어가 같다면 번역하지 않고 그대로 전달
             if source_lang == user.target_lang:
-                print(f"[DEBUG] {user.name}: 소스 언어와 타겟 언어 동일, 번역 건너뜀")
-                user.translation_queue.put(sentence)
-                user.translated_queue.put(sentence)
+                print(f"[DEBUG] {user.name}: 소스 언어와 타겟 언어가 동일하여 번역 없이 전송")
+                user.translation_queue.put(text)
+                user.translated_queue.put(text)
                 user.sentence_queue.task_done()
                 continue
 
-            # 번역 요청 전송
+            # 번역 API 호출 (예시: GPT-4o-mini 번역 요청)
             try:
                 source_name = language_map.get(source_lang, "감지된 언어")
                 target_name = language_map.get(user.target_lang, "영어")
@@ -79,7 +78,7 @@ def translation_thread(user):
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": f"Translate the following text from {source_name} to {target_name}. Only provide the translation without any additional explanation."},
-                        {"role": "user", "content": sentence}
+                        {"role": "user", "content": text}
                     ]
                 )
                 translation = response.choices[0].message.content.strip()
@@ -87,9 +86,9 @@ def translation_thread(user):
             except Exception as e:
                 print(f"[DEBUG] {user.name} 번역 오류: {e}", file=sys.stderr)
                 translation = ""
-
+            
             if translation:
-                # 로그 파일에 번역 결과 기록
+                # 로그 저장 (기존 get_log_filenames 함수 활용)
                 _, target_log = get_log_filenames(source_lang, user.target_lang)
                 try:
                     with open(target_log, "a", encoding="utf-8") as f:
