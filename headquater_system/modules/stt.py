@@ -12,8 +12,9 @@ import threading
 
 from config import DEFAULT_LANGUAGE, CLIENT
 from modules.utils import sanitize_language_code, get_log_filenames
-from modules.dispatcher import dispatch_transcription
+
 from modules.translation import translation_process
+from modules.tts import tts_process
 
 # 전역 변수 (필요 시 메인에서 관리)
 language_lock = threading.Lock()
@@ -118,32 +119,33 @@ def stt_processing_thread(user):
                 # Optional: 음성 체크 (is_speech) – 파일 전체에 대해서 음성의 유무를 판단
                 if len(data) < int(sample_rate * 0.5) or not is_speech(data):
                     print(f"[DEBUG] {user.name} - 음성 없음 또는 너무 짧은 발화")
-                    user.audio_queue.task_done()
                     continue
                     
                 text = stt_processing(user, data, sample_rate)
+                if not text:
+                    print(f"[DEBUG] {user.name} - STT 결과 없음")
+                    continue
+            
+                print(f"[DEBUG] STT 결과: {text}")
 
-                if text:
-                    # source_log, _ = get_log_filenames(user.source_lang, user.target_lang)
-                    # with open(source_log, "a", encoding="utf-8") as f:
-                    #     f.write(text + "\n")
-                    with language_lock:
-                        src_lang = user.source_lang if user.source_lang is not None else DEFAULT_LANGUAGE
-                    # 전사 텍스트가 만들어진 후 (예, text 변수에 있음)
-                    print(f"[DEBUG] STT 결과: {text}")
+                # 전사 결과를 tuple로 묶음
+                # user.sentence_queue.put((text, src_lang))
+                # user.transcription_queue.put((text, src_lang))
+                # transcription_result = (speaker_info, text)
+                
+                try:
+                    translation = translation_process(user, text)
+                except Exception as te:
+                    print(f"[DEBUG] {user.name} 번역 호출 중 오류: {te}", file=sys.stderr)
+                    translation = ""
+                
+                try:
+                    tts_voice = tts_process(translation)
+                except Exception as te:
+                    print(f"[DEBUG] {user.name} tts 호출 중 오류: {te}", file=sys.stderr)
+                    tts_voice = ""
 
-                    # 전사 결과를 tuple로 묶음
-                    user.sentence_queue.put((text, src_lang))
-                    user.transcription_queue.put((text, src_lang))
-                    # transcription_result = (speaker_info, text)
-                    
-                    try:
-                        translation = translation_process(user, text)
-                    except Exception as te:
-                        print(f"[DEBUG] {user.name} 번역 호출 중 오류: {te}", file=sys.stderr)
-                        translation = ""
-                    
-                    user.final_results_queue.put((text, translation))
+                user.final_results_queue.put((text, translation, tts_voice))
             finally:
                 user.audio_queue.task_done()
             
