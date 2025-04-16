@@ -55,6 +55,7 @@ async def startup_event():
 # 1. STT 관리 함수
 @hq_router.post("/stt/audio", response_model=CombinedResultsResponse)
 async def stt_audio_endpoint(payload: STTPayload):
+    print("[DEBUG] POST 요청")
     global date_log
 
     # payload의 type 확인
@@ -76,6 +77,20 @@ async def stt_audio_endpoint(payload: STTPayload):
     
     # REST 방식이므로 websocket은 None 처리
     user = get_or_create_user(speaker_name, source_lang, target_lang, websocket=None)
+
+    # 사용자별로 STT/번역 처리 스레드 실행 (최초 연결 후 처음 데이터를 수신할 때 실행)
+    if not user.processing_started:
+        threading.Thread(
+            target=stt_processing_thread,
+            args=(user,),  # user 내부의 audio_queue 등 사용
+            daemon=True
+        ).start()
+        threading.Thread(
+            target=translation_thread,
+            args=(user,),  # 사용자별 처리 로직으로 수정
+            daemon=True
+        ).start()
+        user.processing_started = True
     
     # audioData 디코딩 및 PCM 데이터 변환 (Int16 -> float32, 정규화, 모노 재배열)
     try:
@@ -93,7 +108,7 @@ async def stt_audio_endpoint(payload: STTPayload):
     combined_results = []
     
     # 추가: 최대 5초동안 결과가 생성될 때까지 기다리는 예시 (polling)
-    timeout = 30.0  # 최대 대기 시간 5초
+    timeout = 60.0  # 최대 대기 시간 5초
     poll_interval = 0.2  # 200ms 간격으로 폴링
     waited = 0.0
 
