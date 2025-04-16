@@ -1,5 +1,5 @@
 # routers/hq.py
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, File, UploadFile
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from datetime import datetime
@@ -20,6 +20,22 @@ from config import CLIENT  # 필요 시 사용
 # 라우터 생성 및 본사 시스템용 API prefix 설정
 hq_router = APIRouter(prefix="/ai/hq")
 
+### Pydantic 모델 정의 ###
+class STTPayload(BaseModel):
+    type: str
+    speakerInfo: dict
+    audioData: str
+    sampleRate: int
+    timestamp: int = None
+
+class CombinedResult(BaseModel):
+    speaker: str
+    transcription: str
+    translation: str
+
+class CombinedResultsResponse(BaseModel):
+    results: list[CombinedResult]
+
 # 최신 결과 저장 변수
 latest_transcription = ""
 latest_translation = ""
@@ -37,6 +53,68 @@ async def startup_event():
     # asyncio.create_task(result_sender_translation_task())
 
 # 1. STT 관리 함수
+@hq_router.post("/stt/audio", response_model=CombinedResultsResponse)
+async def stt_audio_endpoint(payload: STTPayload):
+    global date_log
+
+    # payload의 type 확인
+    if payload.type != "live_audio_chunk":
+        raise HTTPException(status_code=400, detail="Invalid payload type")
+
+    # 사용자 정보 추출
+    speaker_info = payload.speakerInfo
+    speaker_name = speaker_info.get("name", "Unknown")
+    source_lang = speaker_info.get("speakerLang", "ko")
+    target_lang = speaker_info.get("targetLang", "en")
+    
+    # 타임스탬프 처리
+    timestamp = payload.timestamp if payload.timestamp is not None else int(time.time() * 1000)
+    if not date_log:
+        dt = datetime.fromtimestamp(timestamp / 1000)
+        date_log = dt.strftime("%Y%m%d_%H%M%S")
+    
+    # REST 방식이므로 websocket은 None 처리
+    user = get_or_create_user(speaker_name, source_lang, target_lang, websocket=None)
+    
+    # audioData 디코딩 및 PCM 데이터 변환 (Int16 -> float32, 정규화, 모노 재배열)
+    try:
+        raw_bytes = base64.b64decode(payload.audioData)
+        audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        audio_np = audio_np.reshape(-1, 1)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Audio data decoding error: {e}")
+    
+    # 사용자 객체의 음성 큐에 데이터를 넣음
+    user.audio_queue.put((audio_np, payload.sampleRate))
+    
+    # 백그라운드 STT 및 번역 처리 스레드가 실행 중이라고 가정하고,
+    # 결과가 준비되어 있다면 transcription_queue와 translated_queue에서 꺼내 결합 메시지로 생성
+    combined_results = []
+    
+    # 추가: 최대 5초동안 결과가 생성될 때까지 기다리는 예시 (polling)
+    timeout = 30.0  # 최대 대기 시간 5초
+    poll_interval = 0.2  # 200ms 간격으로 폴링
+    waited = 0.0
+
+    while waited < timeout:
+        try:
+            # 두 큐 모두에서 결과를 꺼낼 수 있으면 결합
+            transcription = user.transcription_queue.get_nowait()
+            translation = user.translated_queue.get_nowait()
+            combined_results.append({
+                "speaker": speaker_name,
+                "transcription": transcription,
+                "translation": translation
+            })
+            user.transcription_queue.task_done()
+            user.translated_queue.task_done()
+            break  # 결과를 받았으므로 종료
+        except queue.Empty:
+            # 결과가 아직 없다면 잠시 대기
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+
+    return CombinedResultsResponse(results=combined_results)
 
 # 1-1. STT websocket
 # def convert_webm_to_wav_bytes(raw_bytes: bytes) -> io.BytesIO:
