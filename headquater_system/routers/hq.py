@@ -222,7 +222,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # 여기서는 이미 사용자 정보가 있으므로 추가 획득이 필요없음
             audio_base64 = data.get("audioData")
             sample_rate = int(data.get("sampleRate", "16000"))  # 기본 샘플레이트 지정 가능
-
+            print(f"audiobase size:{audio_base64.size()}, sample rate: {sample_rate}")
             try:
                 # Base64 디코딩 후, Int16 배열을 float32로 변환 및 모노 채널로 재배열
                 raw_bytes = base64.b64decode(audio_base64)
