@@ -39,23 +39,23 @@ async def startup_event():
 # 1. STT 관리 함수
 
 # 1-1. STT websocket
-def convert_webm_to_wav_bytes(raw_bytes: bytes) -> io.BytesIO:
-    try:
-        # ffmpeg의 입력을 'pipe:0'로 지정하여 표준 입력에서 raw_bytes를 읽도록 함.
-        # 출력은 'pipe:1'로 지정해 결과 WAV 데이터를 표준 출력으로 보냄.
-        process = (
-            ffmpeg
-            .input('pipe:0', format='webm', err_detect='ignore_err')
-            .output('pipe:1', format='wav', acodec='pcm_s16le', ac=1, ar='16000')
-            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
-        )
-        out, err = process.communicate(input=raw_bytes)
-        if process.returncode:
-            raise RuntimeError(f"ffmpeg 오류: {err.decode()}")
-        return io.BytesIO(out)
-    except Exception as e:
-        print(f"[DEBUG] ffmpeg 변환 오류: {e}")
-        raise RuntimeError("ffmpeg 변환 실패")
+# def convert_webm_to_wav_bytes(raw_bytes: bytes) -> io.BytesIO:
+#     try:
+#         # ffmpeg의 입력을 'pipe:0'로 지정하여 표준 입력에서 raw_bytes를 읽도록 함.
+#         # 출력은 'pipe:1'로 지정해 결과 WAV 데이터를 표준 출력으로 보냄.
+#         process = (
+#             ffmpeg
+#             .input('pipe:0', format='webm', err_detect='ignore_err')
+#             .output('pipe:1', format='wav', acodec='pcm_s16le', ac=1, ar='16000')
+#             .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+#         )
+#         out, err = process.communicate(input=raw_bytes)
+#         if process.returncode:
+#             raise RuntimeError(f"ffmpeg 오류: {err.decode()}")
+#         return io.BytesIO(out)
+#     except Exception as e:
+#         print(f"[DEBUG] ffmpeg 변환 오류: {e}")
+#         raise RuntimeError("ffmpeg 변환 실패")
     
 # STT WebSocket 엔드포인트 (/ai/hq/ws/stt)
 @hq_router.websocket("/ws/stt")
@@ -77,7 +77,6 @@ async def websocket_endpoint(websocket: WebSocket):
     if not date_log:
         time_stamp = datetime.fromtimestamp(time_stamp / 1000)
         date_log = time_stamp.strftime("%Y%m%d_%H%M%S")
-    
     
     # WebSocket 객체를 함께 전달해 사용자 객체 생성(또는 업데이트)
     user = get_or_create_user(speaker_name, source_lang, target_lang, websocket=websocket)
@@ -113,18 +112,13 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 # Base64 디코딩 후, Int16 배열을 float32로 변환 및 모노 채널로 재배열
                 raw_bytes = base64.b64decode(audio_base64)
-                wav_buffer = convert_webm_to_wav_bytes(raw_bytes)
-                audio_data, sample_rate = sf.read(wav_buffer, dtype='float32')
-                # audio_np = np.frombuffer(wav_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+                
+                audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
 
-                # 스테레오면 모노 변환
-                if len(audio_data.shape) > 1:
-                    audio_data = audio_data.mean(axis=1).reshape(-1, 1)
-                else:
-                    audio_data = audio_data.reshape(-1, 1)
+                audio_np = audio_np.reshape(-1, 1)
 
                 # 전역 큐 대신 해당 사용자 객체의 audio_queue에 데이터와 sample_rate 튜플로 넣음
-                user.audio_queue.put((audio_data, sample_rate))
+                user.audio_queue.put((audio_np, sample_rate))
                 
             except Exception as e:
                 print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
