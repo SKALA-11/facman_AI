@@ -59,8 +59,8 @@ def translation_thread(user):
             # text = message.get("text")
             # source_lang = message.get("source_lang", user.source_lang)
             # speaker_name = message.get("speaker")
-            text, unique_id = user.sentence_queue.get(timeout=1)
-            source_lang = user.source_lang
+            text, source_lang = user.sentence_queue.get(timeout=1)
+            
             print(f"[DEBUG] {user.name}이 번역할 메시지: '{text}' (소스 언어: {source_lang})")
 
             # 만약 메시지의 원본 언어와 자신의 대상 언어가 같다면 번역하지 않고 그대로 전달
@@ -97,7 +97,7 @@ def translation_thread(user):
                 except Exception as log_e:
                     print(f"[DEBUG] {user.name} 로그 저장 오류: {log_e}", file=sys.stderr)
                 # 사용자 전용 큐에 결과 저장
-                user.translation_queue.put(translation, unique_id)
+                user.translation_queue.put(translation)
                 user.translated_queue.put(translation)
             user.sentence_queue.task_done()
         except queue.Empty:

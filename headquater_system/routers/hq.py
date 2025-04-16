@@ -119,38 +119,20 @@ async def stt_audio_endpoint(payload: STTPayload):
             transcription_tuple = user.transcription_queue.get_nowait()
             translation_tuple = user.translated_queue.get_nowait()
             
-            # 튜플에서 값과 고유 ID를 추출합니다.
-            if isinstance(transcription_tuple, tuple) and len(transcription_tuple) >= 2:
-                transcription, trans_id = transcription_tuple[0], transcription_tuple[1]
-            else:
-                transcription, trans_id = transcription_tuple, None
-            
-            if isinstance(translation_tuple, tuple) and len(translation_tuple) >= 2:
-                translation, transla_id = translation_tuple[0], translation_tuple[1]
-            else:
-                translation, transla_id = translation_tuple, None
-            
-            
-            # 고유 ID가 일치하면 결합된 결과에 추가합니다.
-            if trans_id == transla_id:
-                print(f"[DEBUG] 전사결과: {transcription}\n번역결과: {translation}")
-                combined_results.append({
-                    "speaker": speaker_name,
-                    "transcription": transcription,
-                    "translation": translation
-                })
-                user.transcription_queue.task_done()
-                user.translated_queue.task_done()
-                break  # 일치하는 결과를 받았으므로 종료
-            else:
-                # 고유 ID가 매칭되지 않으면, 두 결과를 다시 큐에 넣고 잠시 대기합니다.
-                user.transcription_queue.put(transcription_tuple)
-                user.translated_queue.put(translation_tuple)
-                print(f"[DEBUG] 고유 ID 불일치: {trans_id} vs {transla_id}")
-                await asyncio.sleep(poll_interval)
-                waited += poll_interval
+            # 튜플이면 첫 번째 요소만 추출
+            transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
+            translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
+            print(f"전사결과: {transcription}\n번역결과:{translation}")
+            combined_results.append({
+                "speaker": speaker_name,
+                "transcription": transcription,
+                "translation": translation
+            })
+            user.transcription_queue.task_done()
+            user.translated_queue.task_done()
+            break  # 결과를 받았으므로 종료
         except queue.Empty:
-            # 큐에 결과가 없는 경우 잠시 대기
+            # 결과가 아직 없다면 잠시 대기
             await asyncio.sleep(poll_interval)
             waited += poll_interval
 
