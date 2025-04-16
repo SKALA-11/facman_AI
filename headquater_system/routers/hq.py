@@ -108,6 +108,7 @@ async def stt_audio_endpoint(payload: STTPayload):
     # audioData 디코딩 및 PCM 데이터 변환 (Int16 -> float32, 정규화, 모노 재배열)
     try:
         raw_bytes = base64.b64decode(payload.audioData)
+        print(f"raw_bytes: {len(raw_bytes)}")
         audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         audio_np = audio_np.reshape(-1, 1)
     except Exception as e:
