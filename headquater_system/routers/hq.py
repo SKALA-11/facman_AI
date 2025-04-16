@@ -47,7 +47,7 @@ def convert_webm_to_wav_bytes(raw_bytes: bytes) -> io.BytesIO:
             ffmpeg
             .input('pipe:0', format='webm', err_detect='ignore_err')
             .output('pipe:1', format='wav', acodec='pcm_s16le', ac=1, ar='16000')
-            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+            .run_async(capture_stdout=True, capture_stderr=True, cmd="/usr/bin/ffmpeg")
         )
         out, err = process.communicate(input=raw_bytes)
         if process.returncode:
