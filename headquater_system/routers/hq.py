@@ -69,7 +69,7 @@ async def websocket_endpoint(websocket: WebSocket):
     speaker_info = initial_data.get("speakerInfo", {})
     speaker_name = speaker_info.get("name", "Unknown")
     source_lang = speaker_info.get("speakerLang", "ko")
-    target_lang = speaker_info.get("targetLang", "ko")
+    target_lang = speaker_info.get("targetLang", "en")
     
     # 최초 접속 정보만 저장
     time_stamp = initial_data.get("timestamp", time.time_ns() // 1_000_000)
