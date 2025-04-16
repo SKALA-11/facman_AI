@@ -2,10 +2,12 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, File, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
-import threading, queue, tempfile, os, io, time, asyncio
+from datetime import datetime
+import threading, queue, tempfile, os, io, time, asyncio, sys
 import numpy as np
 import soundfile as sf
 import base64
+import ffmpeg
 
 # 모듈 import
 from modules.stt import stt_processing_thread
@@ -21,6 +23,7 @@ hq_router = APIRouter(prefix="/ai/hq")
 # 최신 결과 저장 변수
 latest_transcription = ""
 latest_translation = ""
+date_log = ""
 
 class TTSRequest(BaseModel):
     text: str
@@ -29,17 +32,35 @@ class TTSRequest(BaseModel):
 @hq_router.on_event("startup")
 async def startup_event():
     # 결과 전송 태스크를 메인 이벤트 루프에 스케줄링
-    # asyncio.create_task(result_sender_task())
-    asyncio.create_task(result_sender_transcription_task())
-    asyncio.create_task(result_sender_translation_task())
+    asyncio.create_task(result_sender_combined_task())
+    # asyncio.create_task(result_sender_transcription_task())
+    # asyncio.create_task(result_sender_translation_task())
 
 # 1. STT 관리 함수
 
 # 1-1. STT websocket
-
+def convert_webm_to_wav_bytes(raw_bytes: bytes) -> io.BytesIO:
+    try:
+        # ffmpeg의 입력을 'pipe:0'로 지정하여 표준 입력에서 raw_bytes를 읽도록 함.
+        # 출력은 'pipe:1'로 지정해 결과 WAV 데이터를 표준 출력으로 보냄.
+        process = (
+            ffmpeg
+            .input('pipe:0', format='webm', err_detect='ignore_err')
+            .output('pipe:1', format='wav', acodec='pcm_s16le', ac=1, ar='16000')
+            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+        )
+        out, err = process.communicate(input=raw_bytes)
+        if process.returncode:
+            raise RuntimeError(f"ffmpeg 오류: {err.decode()}")
+        return io.BytesIO(out)
+    except Exception as e:
+        print(f"[DEBUG] ffmpeg 변환 오류: {e}")
+        raise RuntimeError("ffmpeg 변환 실패")
+    
 # STT WebSocket 엔드포인트 (/ai/hq/ws/stt)
 @hq_router.websocket("/ws/stt")
 async def websocket_endpoint(websocket: WebSocket):
+    global date_log
     await websocket.accept()
     print("[DEBUG] WebSocket 연결됨 (Base64 모드)")
 
@@ -47,10 +68,19 @@ async def websocket_endpoint(websocket: WebSocket):
     initial_data = await websocket.receive_json()
     speaker_info = initial_data.get("speakerInfo", {})
     speaker_name = speaker_info.get("name", "Unknown")
-    connection_id = speaker_info.get("connectionId", "N/A")
+    source_lang = speaker_info.get("speakerLang", "ko")
+    target_lang = speaker_info.get("targetLang", "ko")
+    
+    # 최초 접속 정보만 저장
+    time_stamp = initial_data.get("timestamp", time.time_ns() // 1_000_000)
+    
+    if not date_log:
+        time_stamp = datetime.fromtimestamp(time_stamp / 1000)
+        date_log = time_stamp.strftime("%Y%m%d_%H%M%S")
+    
     
     # WebSocket 객체를 함께 전달해 사용자 객체 생성(또는 업데이트)
-    user = get_or_create_user(speaker_name, connection_id, websocket=websocket)
+    user = get_or_create_user(speaker_name, source_lang, target_lang, websocket=websocket)
 
     # 사용자별로 STT/번역 처리 스레드 실행 (최초 연결 후 처음 데이터를 수신할 때 실행)
     if not user.processing_started:
@@ -83,17 +113,19 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 # Base64 디코딩 후, Int16 배열을 float32로 변환 및 모노 채널로 재배열
                 raw_bytes = base64.b64decode(audio_base64)
-                audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-                audio_np = audio_np.reshape(-1, 1)
+                wav_buffer = convert_webm_to_wav_bytes(raw_bytes)
+                audio_data, sample_rate = sf.read(wav_buffer, dtype='float32')
+                # audio_np = np.frombuffer(wav_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+
+                # 스테레오면 모노 변환
+                if len(audio_data.shape) > 1:
+                    audio_data = audio_data.mean(axis=1).reshape(-1, 1)
+                else:
+                    audio_data = audio_data.reshape(-1, 1)
 
                 # 전역 큐 대신 해당 사용자 객체의 audio_queue에 데이터와 sample_rate 튜플로 넣음
-                user.audio_queue.put((audio_np, sample_rate))
+                user.audio_queue.put((audio_data, sample_rate))
                 
-                # if(audio_np.shape[0] > 0):
-                    # print(f"[DEBUG] 수신된 청크 확인 : {audio_base64[:20]}")
-                    # print(f"[DEBUG] 수신된 청크 확인 : {raw_bytes[:20]}")
-                    # print(f"[DEBUG] 수신된 청크 확인 : {audio_np[:20]}")
-                #     print(f"[DEBUG] 수신된 base64 오디오 chunk shape: {audio_np.shape}, queue size: {user.audio_queue.qsize()}, sample rate: {sample_rate}, speaker info: {speaker_name}")
             except Exception as e:
                 print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
                 continue
@@ -179,6 +211,50 @@ async def result_sender_translation_task():
                 except Exception as ex:
                     print(f"[DEBUG] {user.name} 번역 메시지 전송 오류: {ex}")
                 user.translated_queue.task_done()
+        await asyncio.sleep(1)
+
+# 결과 전송 태스크: 각 사용자 객체의 transcription_queue와 translated_queue에 쌓인 메시지를 결합하여 해당 사용자의 웹소켓으로 전송하며,
+# 동시에 결과를 텍스트 파일로 기록합니다.
+async def result_sender_combined_task():
+    while True:
+        # Lock을 최소화하기 위해 사용자 리스트를 먼저 복사합니다.
+        with users_lock:
+            current_users = list(users.values())
+        for user in current_users:
+            if user.websocket is None:
+                continue  # 연결이 없는 사용자 건너뛰기
+            
+            # 두 큐에 모두 결과가 있는지 확인합니다.
+            if not user.transcription_queue.empty() and not user.translated_queue.empty():
+                # transcription_queue에서 원문 결과를 translated_queue에서 번역 결과를 꺼냅니다.
+                transcription = user.transcription_queue.get()
+                translation = user.translated_queue.get()
+                
+                # 결합된 메시지 구성
+                combined_message = {
+                    "speaker": user.name,
+                    "transcription": transcription,
+                    "translation": translation
+                }
+                try:
+                    await user.websocket.send_json(combined_message)
+                    print(f"[DEBUG] {user.name} 결합 메시지 전송 완료: {combined_message}")
+                except Exception as ex:
+                    print(f"[DEBUG] {user.name} 결합 메시지 전송 오류: {ex}")
+                
+                user.transcription_queue.task_done()
+                user.translated_queue.task_done()
+                
+                # 결과를 텍스트 파일로 기록합니다.
+                # 아래 내용은 고정 형식의 메시지입니다.
+                try:
+                    with open(f"result_log_{date_log}.txt", "a", encoding="utf-8") as log_file:
+                        log_file.write(f"{user.name}\n"
+                                       f"{transcription}\n"
+                                       f"{translation}\n")
+                    print(f"[DEBUG] {user.name} 텍스트 로그 기록 완료")
+                except Exception as log_ex:
+                    print(f"[DEBUG] {user.name} 텍스트 로그 기록 오류: {log_ex}", file=sys.stderr)
         await asyncio.sleep(1)
 
 # 2. STT 전사 결과 반환

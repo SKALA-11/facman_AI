@@ -55,12 +55,13 @@ def translation_thread(user):
     while True:
         try:
             # 메시지: {"speaker": speaker_name, "text": text, "source_lang": source_lang}
-            message = user.sentence_queue.get(timeout=1)
-            text = message.get("text")
-            source_lang = message.get("source_lang", user.source_lang)
-            speaker_name = message.get("speaker")
+            # message = user.sentence_queue.get(timeout=1)
+            # text = message.get("text")
+            # source_lang = message.get("source_lang", user.source_lang)
+            # speaker_name = message.get("speaker")
+            text, source_lang = user.sentence_queue.get(timeout=1)
             
-            print(f"[DEBUG] {user.name}이 번역할 메시지: '{text}' (스피커: {speaker_name}, 소스 언어: {source_lang})")
+            print(f"[DEBUG] {user.name}이 번역할 메시지: '{text}' (소스 언어: {source_lang})")
 
             # 만약 메시지의 원본 언어와 자신의 대상 언어가 같다면 번역하지 않고 그대로 전달
             if source_lang == user.target_lang:
