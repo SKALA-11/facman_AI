@@ -124,14 +124,14 @@ async def stt_audio_endpoint(payload: STTPayload):
     while timeout > waited:
         try:
             # (stt 결과, 번역 결과, tts 음성(mp3 -> base64로 인코딩))
-            # tts는 웹 프론트에 맞춰 구현 필요
-            transcription, translation, _ = user.final_results_queue.get_nowait()
+            transcription, translation, tts_voice = user.final_results_queue.get_nowait()
  
             print(f"전사결과: {transcription}\n번역결과:{translation}")
             combined_results.append({
                 "speaker": speaker_name,
                 "transcription": transcription,
-                "translation": translation
+                "translation": translation,
+                "tts_voice": tts_voice
             })
             user.final_results_queue.task_done()
 
