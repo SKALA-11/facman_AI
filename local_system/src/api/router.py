@@ -12,7 +12,7 @@ from ..db.cruds import (
 from typing import Optional
 from ..utils import encode_image, make_pdf, send_email
 
-router = APIRouter()
+router = APIRouter(prefix="/ai/local")
 
 
 @router.post("/create_event")
