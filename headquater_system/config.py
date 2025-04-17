@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 API_KEY = os.getenv("OPENAI_API_KEY")
+DB_URL = os.getenv("DB_URL")
 
 if not API_KEY:
     logger.error("환경 변수에서 OPENAI_API_KEY를 찾을 수 없습니다. .env 파일을 확인하세요.")
