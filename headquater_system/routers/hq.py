@@ -8,6 +8,7 @@ import numpy as np
 import base64
 import ffmpeg
 import logging
+from typing import Dict, List
 
 # 모듈 import
 from modules.stt import stt_processing_thread
@@ -15,15 +16,17 @@ from modules.tts import tts_thread, generate_tts_audio
 from modules.translation import translation_thread
 from modules.user import get_or_create_user, users_lock, users
 from modules.meeting_transcript import (
-    save_transcript_entry, 
     generate_meeting_summary, 
     list_meeting_transcripts, 
-    get_meeting_transcript,
-    get_meeting_summary
+    get_meeting_summary,
+    update_meeting_title
 )
 from config import CLIENT  # 필요 시 사용
 
 logger = logging.getLogger(__name__)
+
+# Global storage for meeting data
+meeting_data: Dict[str, List[Dict]] = {}  # session_id -> list of messages
 
 # 라우터 생성 및 본사 시스템용 API prefix 설정
 hq_router = APIRouter(prefix="/ai/hq")
@@ -50,6 +53,9 @@ class TTSRequest(BaseModel):
     text: str = Field(..., description="음성으로 변환할 텍스트", example="안녕하세요, FacMan 시스템입니다.")
     voice: str = Field("nova", description="사용할 음성 (예: 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer')", example="nova")
     model: str = Field("tts-1", description="사용할 TTS 모델 (예: 'tts-1', 'tts-1-hd')", example="tts-1")
+
+class UpdateTranscriptTitle(BaseModel):
+    title: str
 
 # 최신 결과 저장 변수
 latest_transcription = ""
@@ -301,19 +307,15 @@ async def result_sender_combined_task(sessionId: str = None):
                 user.transcription_queue.task_done()
                 user.translated_queue.task_done()
                 
-                # Use the new module to save transcript entry
+                # Save to in-memory storage
                 session_id = user.session_id or date_log
-                await save_transcript_entry(
-                    user_name=user.name,
-                    transcription=transcription,
-                    translation=translation,
-                    session_id=session_id,
-                    timestamp=timestamp
-                )
+                if session_id not in meeting_data:
+                    meeting_data[session_id] = []
+                meeting_data[session_id].append(combined_message)
                 
         await asyncio.sleep(1)
 
-# Update the meeting summary endpoint to use the new module
+# Update the meeting summary endpoint to use the in-memory data
 @hq_router.get("/meeting/summary/{session_id}")
 async def get_or_generate_meeting_summary(session_id: str, generate: bool = False):
     # First try to get existing summary
@@ -323,8 +325,54 @@ async def get_or_generate_meeting_summary(session_id: str, generate: bool = Fals
             return JSONResponse(content=summary_data)
     
     # Generate new summary if requested or if no existing summary
-    summary_data, status_code = await generate_meeting_summary(session_id)
-    return JSONResponse(status_code=status_code, content=summary_data)
+    if session_id not in meeting_data or not meeting_data[session_id]:
+        return JSONResponse(status_code=404, content={"error": f"No meeting data found for session ID: {session_id}"})
+    
+    formatted_transcript = "\n".join(
+        f"{entry['speaker']}: {entry['transcription']}" 
+        for entry in meeting_data[session_id]
+    )
+
+    system_prompt = """
+    당신은 전문 회의록 요약 AI입니다.
+    당신의 목표는 회의 내용을 분석하고 실무에 도움이 되도록 아래의 형식을 갖춘 요약을 생성하는 것입니다.
+    결과는 간결하면서도 중요한 정보가 빠짐없이 담겨야 합니다.
+    형식을 반드시 지켜주세요.
+    """
+
+    user_prompt = f"""
+    다음은 회의 대화 내용입니다. 아래의 형식을 따라 회의 요약을 작성해주세요:
+
+    1. 회의 요약 (3~5문장으로 전체 흐름을 설명)
+    2. 핵심 논의 주제 (항목별 나열)
+    3. 주요 결정 사항 (항목별 나열, 결정된 내용 중심)
+    4. Action Items (항목별로 '담당자 - 할 일 - 기한' 형식)
+
+    회의 내용:
+    {formatted_transcript}
+    """
+
+
+    try:
+        response = await CLIENT.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        summary_content = response.choices[0].message.content
+
+        # 회의 제목 설정 (기본값으로 session_id 사용)
+        meeting_title = session_id
+
+        # 데이터베이스에 저장
+        summary_data, status_code = await generate_meeting_summary(session_id, meeting_title, summary_content)
+        return JSONResponse(status_code=status_code, content=summary_data)
+
+    except Exception as api_error:
+        print(f"OpenAI API error: {api_error}")
+        return JSONResponse(status_code=500, content={"error": f"OpenAI API error: {str(api_error)}"})
 
 # Update the list transcripts endpoint to use the new module
 @hq_router.get("/meeting/transcripts")
@@ -335,8 +383,14 @@ async def api_list_meeting_transcripts():
 # Update the get transcript endpoint to use the new module
 @hq_router.get("/meeting/transcript/{session_id}")
 async def api_get_meeting_transcript(session_id: str):
-    transcript_data, status_code = await get_meeting_transcript(session_id)
+    transcript_data, status_code = await get_meeting_summary(session_id)
     return JSONResponse(status_code=status_code, content=transcript_data)
+
+# Add new endpoint for updating meeting title
+@hq_router.put("/meeting/transcript/{session_id}/title")
+async def update_meeting_title_endpoint(session_id: str, title: UpdateTranscriptTitle):
+    result, status_code = await update_meeting_title(session_id, title.title)
+    return JSONResponse(status_code=status_code, content=result)
 
 # 2. STT 전사 결과 반환
 @hq_router.get("/transcription")
