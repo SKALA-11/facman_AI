@@ -100,7 +100,8 @@ Translate exactly what they say, without any extra commentary."""},
         except Exception as e:
             print(f"[DEBUG] {user.name} 번역 오류: {e}", file=sys.stderr)
             translation = text
+        return translation
         
     except Exception as e:
         print(f"[DEBUG] {user.name} 번역 처리 중 오류 발생: {e}", file=sys.stderr)
-        return
+        return text
