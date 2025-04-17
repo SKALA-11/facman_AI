@@ -41,6 +41,7 @@ class CombinedResult(BaseModel):
     speaker: str
     transcription: str
     translation: str
+    tts_voice: str
 
 class CombinedResultsResponse(BaseModel):
     results: list[CombinedResult]
