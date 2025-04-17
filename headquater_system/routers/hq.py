@@ -87,7 +87,7 @@ async def stt_audio_endpoint(payload: STTPayload):
     target_lang = speaker_info.get("targetLang", "en")
     session_id = speaker_info.get("sessionId", None)  # Extract sessionId
     
-    print(f"{speaker_name}: src{source_lang}, tar{target_lang}, sessionId: {session_id}")
+    print(f"{speaker_name}: src {source_lang}, tar {target_lang}, sessionId: {session_id}")
     # 타임스탬프 처리
     timestamp = payload.timestamp if payload.timestamp is not None else int(time.time() * 1000)
     if not date_log:
