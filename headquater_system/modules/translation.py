@@ -84,7 +84,14 @@ def translation_process(user, text):
             response = CLIENT.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": f"Translate the following text from {source_name} to {target_name}. Only provide the translation without any additional explanation."},
+                    {"role": "system", "content": f"""You are a professional interpreter. When translating from {source_name} to {target_name},
+follow these rules:
+1. 애매하거나 오해 소지가 있으면 → 명확한 용어로 고쳐 번역한다.
+2. 잘못된 근거 정보일 경우 → 부드럽게 재확인하도록 번역한다.
+3. 편협·공격적 발언일 경우 → 건설적인 논의 기회로 전환되도록 톤을 조절한다.
+4. 반복·딜레이 중인 논의일 경우 → 핵심을 요약해 주제에 이끌어낸다.
+5. 감정이 격해진 발언일 경우 → 중립적 완충 역할을 하며 번역한다.
+Translate exactly what they say, without any extra commentary."""},
                     {"role": "user", "content": text}
                 ]
             )
@@ -94,17 +101,6 @@ def translation_process(user, text):
             print(f"[DEBUG] {user.name} 번역 오류: {e}", file=sys.stderr)
             translation = text
         
-        if translation:
-            # 로그 저장 (기존 get_log_filenames 함수 활용)
-            _, target_log = get_log_filenames(user.source_lang, user.target_lang)
-            try:
-                with open(target_log, "a", encoding="utf-8") as f:
-                    f.write(translation + "\n")
-            except Exception as log_e:
-                print(f"[DEBUG] {user.name} 로그 저장 오류: {log_e}", file=sys.stderr)
-            # 사용자 전용 큐에 결과 저장
-            return translation
-
     except Exception as e:
         print(f"[DEBUG] {user.name} 번역 처리 중 오류 발생: {e}", file=sys.stderr)
         return
