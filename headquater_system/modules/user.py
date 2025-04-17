@@ -57,7 +57,7 @@ def get_or_create_user(name: str, default_source: str = "ko", default_target: st
             user = User(name, default_source, default_target, session_id)
             user.websocket = websocket
             users[name] = user
-            print(f"[DEBUG] 새로운 사용자가 추가되었습니다: {user.name}, 세션 ID: {session_id}")
+            print(f"[DEBUG] 새로운 사용자가 추가되었습니다: {user.name}, 세션 ID: {session_id}, 참여인원: {len(users)}")
             return user
 
 def get_user_by_connection(connection_id: str) -> User:
