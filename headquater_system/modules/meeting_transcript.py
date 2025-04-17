@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Integer, String, Text, DateTime, select
 from config import DB_URL
 
 # Define the log directory
@@ -35,22 +35,20 @@ async def generate_meeting_summary(session_id: str, title: str, content: str):
     """
     async with async_session() as session:
         try:
-            existing_transcript = await session.execute(
-                "SELECT * FROM meeting_transcripts WHERE session_id = :session_id",
-                {"session_id": session_id}
-            )
-            existing_transcript = existing_transcript.first()
+            # Check if transcript exists
+            stmt = select(MeetingTranscriptDB).where(MeetingTranscriptDB.session_id == session_id)
+            result = await session.execute(stmt)
+            existing_transcript = result.scalar_one_or_none()
             
             if existing_transcript:
-                await session.execute(
-                    "UPDATE meeting_transcripts SET content = :content WHERE session_id = :session_id",
-                    {"content": content, "session_id": session_id}
-                )
+                existing_transcript.content = content
             else:
-                await session.execute(
-                    "INSERT INTO meeting_transcripts (session_id, title, content) VALUES (:session_id, :title, :content)",
-                    {"session_id": session_id, "title": title, "content": content}
+                new_transcript = MeetingTranscriptDB(
+                    session_id=session_id,
+                    title=title,
+                    content=content
                 )
+                session.add(new_transcript)
             
             await session.commit()
             return {"session_id": session_id, "title": title, "content": content}, 200
@@ -65,11 +63,9 @@ async def get_meeting_summary(session_id: str):
     """
     async with async_session() as session:
         try:
-            result = await session.execute(
-                "SELECT * FROM meeting_transcripts WHERE session_id = :session_id",
-                {"session_id": session_id}
-            )
-            transcript = result.first()
+            stmt = select(MeetingTranscriptDB).where(MeetingTranscriptDB.session_id == session_id)
+            result = await session.execute(stmt)
+            transcript = result.scalar_one_or_none()
             
             if transcript:
                 return {
@@ -90,8 +86,9 @@ async def list_meeting_transcripts():
     """
     async with async_session() as session:
         try:
-            result = await session.execute("SELECT * FROM meeting_transcripts")
-            transcripts = result.fetchall()
+            stmt = select(MeetingTranscriptDB)
+            result = await session.execute(stmt)
+            transcripts = result.scalars().all()
             
             transcript_list = [
                 {
@@ -111,19 +108,14 @@ async def update_meeting_title(session_id: str, new_title: str):
     """
     async with async_session() as session:
         try:
-            result = await session.execute(
-                "SELECT * FROM meeting_transcripts WHERE session_id = :session_id",
-                {"session_id": session_id}
-            )
-            transcript = result.first()
+            stmt = select(MeetingTranscriptDB).where(MeetingTranscriptDB.session_id == session_id)
+            result = await session.execute(stmt)
+            transcript = result.scalar_one_or_none()
             
             if not transcript:
                 return {"error": f"No transcript found for session ID: {session_id}"}, 404
             
-            await session.execute(
-                "UPDATE meeting_transcripts SET title = :title WHERE session_id = :session_id",
-                {"title": new_title, "session_id": session_id}
-            )
+            transcript.title = new_title
             await session.commit()
             return {"session_id": session_id, "title": new_title}, 200
         except Exception as e:
@@ -135,3 +127,9 @@ async def update_meeting_title(session_id: str, new_title: str):
 async def create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+# 테이블 존재 여부 확인 함수
+async def check_tables():
+    async with engine.begin() as conn:
+        tables = await conn.run_sync(lambda conn: conn.dialect.get_table_names(conn))
+        return "meeting_transcripts" in tables
