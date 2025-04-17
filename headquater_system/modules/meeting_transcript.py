@@ -4,9 +4,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-
+from config import DB_URL
 # Define the log directory
-DATABASE_URL = "jdbc:mariadb://facman.duckdns.org:3306/facman?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul&authenticationPlugin=mysql_native_password&useSSL=false"
+DATABASE_URL = DB_URL
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
