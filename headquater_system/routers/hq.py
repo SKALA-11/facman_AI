@@ -13,7 +13,6 @@ import logging
 from modules.stt import stt_processing_thread
 from modules.tts import tts_thread, generate_tts_audio
 from modules.translation import translation_thread
-from modules.audio import recording_active
 from modules.user import get_or_create_user, users_lock, users
 from modules.meeting_transcript import (
     save_transcript_entry, 
@@ -98,11 +97,7 @@ async def stt_audio_endpoint(payload: STTPayload):
             args=(user,),  # user 내부의 audio_queue 등 사용
             daemon=True
         ).start()
-        # threading.Thread(
-        #     target=translation_thread,
-        #     args=(user,),  # 사용자별 처리 로직으로 수정
-        #     daemon=True
-        # ).start()
+
         user.processing_started = True
     
     # audioData 디코딩 및 PCM 데이터 변환 (Int16 -> float32, 정규화, 모노 재배열)
@@ -122,21 +117,21 @@ async def stt_audio_endpoint(payload: STTPayload):
     combined_results = []
     
     # 추가: 최대 timeout초동안 결과가 생성될 때까지 기다리는 예시 (polling)
-    timeout = 60.0  # 최대 대기 시간
+    timeout = 120.0  # 최대 대기 시간
     poll_interval = 0.2  # 200ms 간격으로 폴링
     waited = 0.0
 
     while timeout > waited:
         try:
             # (stt 결과, 번역 결과, tts 음성(mp3 -> base64로 인코딩))
-            # tts는 웹 프론트에 맞춰 구현 필요
-            transcription, translation, _ = user.final_results_queue.get_nowait()
+            transcription, translation, tts_voice = user.final_results_queue.get_nowait()
  
             print(f"전사결과: {transcription}\n번역결과:{translation}")
             combined_results.append({
                 "speaker": speaker_name,
                 "transcription": transcription,
-                "translation": translation
+                "translation": translation,
+                "tts_voice": tts_voice
             })
             user.final_results_queue.task_done()
 
@@ -149,23 +144,6 @@ async def stt_audio_endpoint(payload: STTPayload):
     return CombinedResultsResponse(results=combined_results)
 
 # 1-1. STT websocket
-# def convert_webm_to_wav_bytes(raw_bytes: bytes) -> io.BytesIO:
-#     try:
-#         # ffmpeg의 입력을 'pipe:0'로 지정하여 표준 입력에서 raw_bytes를 읽도록 함.
-#         # 출력은 'pipe:1'로 지정해 결과 WAV 데이터를 표준 출력으로 보냄.
-#         process = (
-#             ffmpeg
-#             .input('pipe:0', format='webm', err_detect='ignore_err')
-#             .output('pipe:1', format='wav', acodec='pcm_s16le', ac=1, ar='16000')
-#             .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
-#         )
-#         out, err = process.communicate(input=raw_bytes)
-#         if process.returncode:
-#             raise RuntimeError(f"ffmpeg 오류: {err.decode()}")
-#         return io.BytesIO(out)
-#     except Exception as e:
-#         print(f"[DEBUG] ffmpeg 변환 오류: {e}")
-#         raise RuntimeError("ffmpeg 변환 실패")
     
 # STT WebSocket 엔드포인트 (/ai/hq/ws/stt)
 @hq_router.websocket("/ws/stt")
