@@ -128,6 +128,11 @@ def stt_processing_thread(user):
             
                 print(f"[DEBUG] STT 결과: {text}")
 
+                # “Please transcribe exactly what you hear.” 은 에러 유도 메시지이므로 스킵
+                if text.strip().lower().startswith("please transcribe exactly what you hear"):
+                    print(f"[DEBUG] {user.name} - 에러 프롬프트 감지, 스킵")
+                    continue
+
                 # 전사 결과를 tuple로 묶음
                 # user.sentence_queue.put((text, src_lang))
                 # user.transcription_queue.put((text, src_lang))
