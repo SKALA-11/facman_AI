@@ -51,7 +51,7 @@ def get_or_create_user(name: str, default_source: str = "ko", default_target: st
         if name in users:
             user = users[name]
             # 사용자 정보 업데이트 (WebSocket도 함께 업데이트)
-            user.update(name=name, websocket=websocket, session_id=session_id)
+            user.update(name=name, source_lang=default_source, target_lang=default_target, websocket=websocket, session_id=session_id)
             return user
         else:
             user = User(name, default_source, default_target, session_id)
