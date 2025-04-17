@@ -106,6 +106,7 @@ def tts_process(translation):
             model="tts-1",      # TTS 처리 모델: tts-1
             voice="nova",       # 선택 옵션 (원하는 목소리로 설정)
             input=translation,
+            response_format="opus"
             # instructions="Optional additional instructions"  # 필요 시 추가 지침
         ) as response:
             response.stream_to_file(temp_audio_path)
