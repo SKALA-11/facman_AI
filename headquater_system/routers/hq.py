@@ -9,7 +9,6 @@ import base64
 import ffmpeg
 import logging
 from typing import Dict, List
-import uuid  # Add at the top with other imports
 
 # 모듈 import
 from modules.stt import stt_processing_thread
@@ -166,7 +165,7 @@ async def websocket_endpoint(websocket: WebSocket):
     speaker_name = speaker_info.get("name", "Unknown")
     source_lang = speaker_info.get("speakerLang", "ko")
     target_lang = speaker_info.get("targetLang", "en")
-    session_id = speaker_info.get("sessionId", str(uuid.uuid4()))  # sessionId가 없으면 UUID 생성
+    session_id = speaker_info.get("sessionId", None)  # Extract sessionId
     
     # 최초 접속 정보만 저장
     time_stamp = initial_data.get("timestamp", time.time_ns() // 1_000_000)
@@ -176,7 +175,7 @@ async def websocket_endpoint(websocket: WebSocket):
         date_log = time_stamp.strftime("%Y%m%d_%H%M%S")
     
     # WebSocket 객체를 함께 전달해 사용자 객체 생성(또는 업데이트)
-    user = get_or_create_user(speaker_name, source_lang, target_lang, websocket=websocket, session_id=session_id)
+    user = get_or_create_user(speaker_name, source_lang, target_lang, websocket=websocket)
 
     # 사용자별로 STT/번역 처리 스레드 실행 (최초 연결 후 처음 데이터를 수신할 때 실행)
     if not user.processing_started:
@@ -217,33 +216,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 # 전역 큐 대신 해당 사용자 객체의 audio_queue에 데이터와 sample_rate 튜플로 넣음
                 user.audio_queue.put((audio_np, sample_rate))
                 
-                # final_results_queue에서 결과를 기다림
-                if not user.final_results_queue.empty():
-                    transcription, translation, tts_voice = user.final_results_queue.get_nowait()
-                    
-                    # 현재 시간 정보 추가
-                    timestamp = datetime.now().isoformat()
-                    
-                    # 메시지 구성
-                    combined_message = {
-                        "speaker": user.name,
-                        "transcription": transcription,
-                        "translation": translation,
-                        "tts_voice": tts_voice,
-                        "timestamp": timestamp
-                    }
-                    
-                    # meeting_data에 저장
-                    if session_id not in meeting_data:
-                        meeting_data[session_id] = []
-                    meeting_data[session_id].append(combined_message)
-                    
-                    # WebSocket으로 결과 전송
-                    await websocket.send_json(combined_message)
-                    print(f"[DEBUG] {user.name} 메시지 전송 완료: {combined_message}")
-                    
-                    user.final_results_queue.task_done()
-                
             except Exception as e:
                 print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
                 continue
@@ -252,6 +224,18 @@ async def websocket_endpoint(websocket: WebSocket):
         print("[DEBUG] WebSocket 연결 종료됨")
         # 연결 종료 시 사용자 객체의 websocket 필드를 None 처리(필요에 따라 추가 정리)
         user.websocket = None
+
+
+# 결과 전송 함수: WebSocket 클라이언트로 결과 전송
+# async def send_to_clients(message):
+#     for client in list(websocket_clients):
+#         try:
+#             await client.send_json(message)
+#             print(f"[DEBUG] send_to_clients 완료됨")
+#         except Exception as ex:
+#             print(f"[DEBUG] send_to_clients 오류: {ex}")
+#             if client in websocket_clients:
+#                 websocket_clients.remove(client)
 
 # 결과 전송 태스크: STT, 번역 결과를 주기적으로 WebSocket 클라이언트에 전송
 async def result_sender_task():
@@ -279,9 +263,61 @@ async def result_sender_task():
                     user.translated_queue.task_done()
         await asyncio.sleep(0.2)
 
+# 결과 전송 태스크: 각 사용자 객체의 transcription_queue와 translated_queue에 쌓인 메시지를 결합하여 해당 사용자의 웹소켓으로 전송하며,
+# 동시에 결과를 텍스트 파일로 기록합니다.
+@hq_router.get("/result")
+async def result_sender_combined_task(sessionId: str = None):
+    while True:
+        # Lock을 최소화하기 위해 사용자 리스트를 먼저 복사합니다.
+        with users_lock:
+            if sessionId:
+                # Filter users by sessionId if provided
+                current_users = [user for user in users.values() if user.session_id == sessionId]
+            else:
+                current_users = list(users.values())
+                
+        for user in current_users:
+            # 두 큐에 모두 결과가 있는지 확인합니다.
+            if not user.transcription_queue.empty() and not user.translated_queue.empty():
+                # transcription_queue에서 원문 결과를 translated_queue에서 번역 결과를 꺼냅니다.
+                transcription_tuple = user.transcription_queue.get_nowait()
+                translation_tuple = user.translated_queue.get_nowait()
+                
+                # 튜플이면 첫 번째 요소만 추출
+                transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
+                translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
+                
+                # 현재 시간 정보 추가
+                timestamp = datetime.now().isoformat()
+                
+                # 결합된 메시지 구성
+                combined_message = {
+                    "speaker": user.name,
+                    "transcription": transcription,
+                    "translation": translation,
+                    "timestamp": timestamp
+                }
+                
+                try:
+                    await user.websocket.send_json(combined_message)
+                    print(f"[DEBUG] {user.name} 결합 메시지 전송 완료: {combined_message}")
+                except Exception as ex:
+                    print(f"[DEBUG] {user.name} 결합 메시지 전송 오류: {ex}")
+                
+                user.transcription_queue.task_done()
+                user.translated_queue.task_done()
+                
+                # Save to in-memory storage
+                session_id = user.session_id or date_log
+                if session_id not in meeting_data:
+                    meeting_data[session_id] = []
+                meeting_data[session_id].append(combined_message)
+                
+        await asyncio.sleep(1)
+
 # Update the meeting summary endpoint to use the in-memory data
 @hq_router.get("/meeting/summary/{session_id}")
-async def get_or_generate_meeting_summary(session_id: str, generate: bool = True):  # generate 기본값을 True로 변경
+async def get_or_generate_meeting_summary(session_id: str, generate: bool = False):
     # First try to get existing summary
     if not generate:
         summary_data, status_code = await get_meeting_summary(session_id)
@@ -290,13 +326,12 @@ async def get_or_generate_meeting_summary(session_id: str, generate: bool = True
     
     # Generate new summary if requested or if no existing summary
     if session_id not in meeting_data or not meeting_data[session_id]:
-        # 데이터가 없는 경우에도 기본 회의록 생성
-        formatted_transcript = "회의 내용이 없습니다."
-    else:
-        formatted_transcript = "\n".join(
-            f"{entry['speaker']}: {entry['transcription']}" 
-            for entry in meeting_data[session_id]
-        )
+        return JSONResponse(status_code=404, content={"error": f"No meeting data found for session ID: {session_id}"})
+    
+    formatted_transcript = "\n".join(
+        f"{entry['speaker']}: {entry['transcription']}" 
+        for entry in meeting_data[session_id]
+    )
 
     system_prompt = """
     당신은 전문 회의록 요약 AI입니다.
@@ -316,6 +351,7 @@ async def get_or_generate_meeting_summary(session_id: str, generate: bool = True
     회의 내용:
     {formatted_transcript}
     """
+
 
     try:
         response = await CLIENT.chat.completions.create(
