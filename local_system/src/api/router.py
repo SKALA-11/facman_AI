@@ -19,7 +19,7 @@ router = APIRouter(
     summary="Create a new event"
 )
 async def create_event_router(
-    payload: db_schemas.EventCreateRequest,
+    payload: db_schemas.EventCreate,
     db: AsyncSession = Depends(get_db)
 ):
     """
