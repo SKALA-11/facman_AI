@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, Depends, HTTPException
+from fastapi import APIRouter, UploadFile, Depends, HTTPException, Form, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.database import get_db
 from ..db.cruds import create_event, get_event, get_events
@@ -41,7 +41,10 @@ async def get_events_router(
 
 @router.post("/solve_event")
 async def solve_event_router(
-    event_id: int, image: UploadFile, explain: str, db: AsyncSession = Depends(get_db)
+    event_id: int = Form(...),
+    image: UploadFile = File(...),
+    explain: str = Form(...),
+    db: AsyncSession = Depends(get_db)
 ):
     event = await get_event(db, event_id)
     if not event:
@@ -49,18 +52,16 @@ async def solve_event_router(
             status_code=404, detail=f"Event with ID {event_id} not found"
         )
 
-    bytes = await image.read()
+    bytes_data = await image.read()
 
-    encoded_image = encode_image(bytes)
-
+    encoded_image = encode_image(bytes_data)
+    
     event_detail = await get_event_detail(db, event_id)
 
     if event_detail:
         event_detail = await update_event_detail(db, event_id, encoded_image, explain)
     else:
         event_detail = await create_event_detail(db, event_id, encoded_image, explain)
-
-    await image.seek(0)
     
     from ..chatbot import ChatBot
     chatbot = ChatBot()
