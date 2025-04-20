@@ -238,30 +238,30 @@ async def websocket_endpoint(websocket: WebSocket):
 #                 websocket_clients.remove(client)
 
 # 결과 전송 태스크: STT, 번역 결과를 주기적으로 WebSocket 클라이언트에 전송
-async def result_sender_task():
-    while True:
-        # 전역 users 딕셔너리를 순회하면서 각 사용자 객체의 번역 큐에 메시지가 있다면 전송
-        with users_lock:
-            for user in users.values():
-                if user.websocket is None:
-                    continue  # 연결이 없는 사용자 건너뛰기
-                while not user.transcription_queue.empty():
-                    message = user.transcription_queue.get()
-                    try:
-                        await user.websocket.send_json(message)
-                        print(f"[DEBUG] {user.name}전사 전송 완료: {message}")
-                    except Exception as ex:
-                        print(f"[DEBUG] {user.name}전사 전송 오류: {ex}")
-                    user.transcription_queue.task_done()
-                while not user.translated_queue.empty():
-                    message = user.translated_queue.get()
-                    try:
-                        await user.websocket.send_json(message)
-                        print(f"[DEBUG] {user.name}에게 메시지 전송 완료: {message}")
-                    except Exception as ex:
-                        print(f"[DEBUG] {user.name}에게 메시지 전송 오류: {ex}")
-                    user.translated_queue.task_done()
-        await asyncio.sleep(0.2)
+# async def result_sender_task():
+#     while True:
+#         # 전역 users 딕셔너리를 순회하면서 각 사용자 객체의 번역 큐에 메시지가 있다면 전송
+#         with users_lock:
+#             for user in users.values():
+#                 if user.websocket is None:
+#                     continue  # 연결이 없는 사용자 건너뛰기
+#                 while not user.transcription_queue.empty():
+#                     message = user.transcription_queue.get()
+#                     try:
+#                         await user.websocket.send_json(message)
+#                         print(f"[DEBUG] {user.name}전사 전송 완료: {message}")
+#                     except Exception as ex:
+#                         print(f"[DEBUG] {user.name}전사 전송 오류: {ex}")
+#                     user.transcription_queue.task_done()
+#                 while not user.translated_queue.empty():
+#                     message = user.translated_queue.get()
+#                     try:
+#                         await user.websocket.send_json(message)
+#                         print(f"[DEBUG] {user.name}에게 메시지 전송 완료: {message}")
+#                     except Exception as ex:
+#                         print(f"[DEBUG] {user.name}에게 메시지 전송 오류: {ex}")
+#                     user.translated_queue.task_done()
+#         await asyncio.sleep(0.2)
 
 # 결과 전송 태스크: 각 사용자 객체의 transcription_queue와 translated_queue에 쌓인 메시지를 결합하여 해당 사용자의 웹소켓으로 전송하며,
 # 동시에 결과를 텍스트 파일로 기록합니다.
@@ -316,30 +316,26 @@ async def result_sender_combined_task(sessionId: str = None):
         await asyncio.sleep(1)
 
 # Update the meeting summary endpoint to use the in-memory data
-@hq_router.get("/meeting/summary/{session_id}")
-async def get_or_generate_meeting_summary(session_id: str, generate: bool = False):
-    # First try to get existing summary
-    if not generate:
-        summary_data, status_code = await get_meeting_summary(session_id)
-        if status_code == 200:
-            return JSONResponse(content=summary_data)
-    
-    # Generate new summary if requested or if no existing summary
-    if session_id not in meeting_data or not meeting_data[session_id]:
-        return JSONResponse(status_code=404, content={"error": f"No meeting data found for session ID: {session_id}"})
-    
+@hq_router.post("/meeting/end/{session_id}")
+async def end_meeting(session_id: str, title: str):
+    # 1. Gather conversation data for the session
+    conversation = meeting_data.get(session_id, [])
+    if not conversation:
+        return JSONResponse(status_code=404, content={"error": "No conversation data found for this session."})
+
+    # 2. Format the transcript for summary generation
     formatted_transcript = "\n".join(
         f"{entry['speaker']}: {entry['transcription']}" 
-        for entry in meeting_data[session_id]
+        for entry in conversation
     )
 
+    # 3. Generate summary using your LLM (e.g., OpenAI)
     system_prompt = """
     당신은 전문 회의록 요약 AI입니다.
     당신의 목표는 회의 내용을 분석하고 실무에 도움이 되도록 아래의 형식을 갖춘 요약을 생성하는 것입니다.
     결과는 간결하면서도 중요한 정보가 빠짐없이 담겨야 합니다.
     형식을 반드시 지켜주세요.
     """
-
     user_prompt = f"""
     다음은 회의 대화 내용입니다. 아래의 형식을 따라 회의 요약을 작성해주세요:
 
@@ -352,7 +348,6 @@ async def get_or_generate_meeting_summary(session_id: str, generate: bool = Fals
     {formatted_transcript}
     """
 
-
     try:
         response = await CLIENT.chat.completions.create(
             model="gpt-4",
@@ -362,17 +357,15 @@ async def get_or_generate_meeting_summary(session_id: str, generate: bool = Fals
             ]
         )
         summary_content = response.choices[0].message.content
-
-        # 회의 제목 설정 (기본값으로 session_id 사용)
-        meeting_title = session_id
-
-        # 데이터베이스에 저장
-        summary_data, status_code = await generate_meeting_summary(session_id, meeting_title, summary_content)
-        return JSONResponse(status_code=status_code, content=summary_data)
-
     except Exception as api_error:
         print(f"OpenAI API error: {api_error}")
         return JSONResponse(status_code=500, content={"error": f"OpenAI API error: {str(api_error)}"})
+
+    # 4. Save the summary to the DB
+    summary_data, status_code = await generate_meeting_summary(session_id, title, summary_content)
+
+    # 5. Return the saved summary from the DB
+    return JSONResponse(status_code=status_code, content=summary_data)
 
 # Update the list transcripts endpoint to use the new module
 @hq_router.get("/meeting/transcripts")
