@@ -148,6 +148,12 @@ async def stt_audio_endpoint(payload: STTPayload):
             await asyncio.sleep(poll_interval)
             waited += poll_interval
 
+    # 결과를 meeting_data에 저장
+    if session_id:
+        if session_id not in meeting_data:
+            meeting_data[session_id] = []
+        meeting_data[session_id].extend(combined_results)
+
     return CombinedResultsResponse(results=combined_results)
 
 # 1-1. STT websocket
@@ -307,65 +313,84 @@ async def result_sender_combined_task(sessionId: str = None):
                 user.transcription_queue.task_done()
                 user.translated_queue.task_done()
                 
-                # Save to in-memory storage
-                session_id = user.session_id or date_log
-                if session_id not in meeting_data:
-                    meeting_data[session_id] = []
-                meeting_data[session_id].append(combined_message)
-                
         await asyncio.sleep(1)
 
 # Update the meeting summary endpoint to use the in-memory data
 @hq_router.post("/meeting/end/{session_id}")
-async def end_meeting(session_id: str, title: str):
-    # 1. Gather conversation data for the session
-    conversation = meeting_data.get(session_id, [])
-    if not conversation:
-        return JSONResponse(status_code=404, content={"error": "No conversation data found for this session."})
-
-    # 2. Format the transcript for summary generation
-    formatted_transcript = "\n".join(
-        f"{entry['speaker']}: {entry['transcription']}" 
-        for entry in conversation
-    )
-
-    # 3. Generate summary using your LLM (e.g., OpenAI)
-    system_prompt = """
-    당신은 전문 회의록 요약 AI입니다.
-    당신의 목표는 회의 내용을 분석하고 실무에 도움이 되도록 아래의 형식을 갖춘 요약을 생성하는 것입니다.
-    결과는 간결하면서도 중요한 정보가 빠짐없이 담겨야 합니다.
-    형식을 반드시 지켜주세요.
+async def end_meeting(session_id: str, title: str = None):
     """
-    user_prompt = f"""
-    다음은 회의 대화 내용입니다. 아래의 형식을 따라 회의 요약을 작성해주세요:
-
-    1. 회의 요약 (3~5문장으로 전체 흐름을 설명)
-    2. 핵심 논의 주제 (항목별 나열)
-    3. 주요 결정 사항 (항목별 나열, 결정된 내용 중심)
-    4. Action Items (항목별로 '담당자 - 할 일 - 기한' 형식)
-
-    회의 내용:
-    {formatted_transcript}
+    회의 종료 시 호출되는 엔드포인트
+    해당 session_id의 모든 대화 내용을 가져와 회의록을 생성하고 저장
     """
-
     try:
-        response = await CLIENT.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        # 1. Gather conversation data for the session
+        conversation = meeting_data.get(session_id, [])
+        if not conversation:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "No conversation data found for this session."}
+            )
+
+        # 2. Format the transcript for summary generation
+        formatted_transcript = "\n".join(
+            f"{entry['speaker']}: {entry['transcription']} ({entry['translation']})"
+            for entry in conversation
         )
-        summary_content = response.choices[0].message.content
-    except Exception as api_error:
-        print(f"OpenAI API error: {api_error}")
-        return JSONResponse(status_code=500, content={"error": f"OpenAI API error: {str(api_error)}"})
 
-    # 4. Save the summary to the DB
-    summary_data, status_code = await generate_meeting_summary(session_id, title, summary_content)
+        # 3. Generate summary using GPT-4
+        system_prompt = """
+        당신은 전문 회의록 요약 AI입니다.
+        당신의 목표는 회의 내용을 분석하고 실무에 도움이 되도록 아래의 형식을 갖춘 요약을 생성하는 것입니다.
+        결과는 간결하면서도 중요한 정보가 빠짐없이 담겨야 합니다.
+        대화 내용을 바탕으로 구조화된 회의록을 작성해주세요.
+        형식:
+        1. 회의 요약 (3~5문장으로 전체 흐름을 설명)
+        2. 핵심 논의 주제 (항목별 나열)
+        3. 주요 결정 사항 (항목별 나열, 결정된 내용 중심)
+        4. Action Items (항목별로 '담당자 - 할 일 - 기한' 형식)
 
-    # 5. Return the saved summary from the DB
-    return JSONResponse(status_code=status_code, content=summary_data)
+        회의 내용:
+        {formatted_transcript}
+        """
+
+        try:
+            response = await CLIENT.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": formatted_transcript}
+                ]
+            )
+            summary_content = response.choices[0].message.content
+
+            # 4. Save the summary to the DB
+            meeting_title = title or f"Meeting {session_id}"
+            summary_data, status_code = await generate_meeting_summary(
+                session_id=session_id,
+                title=meeting_title,
+                content=summary_content
+            )
+
+            # 5. Clear the session data
+            if session_id in meeting_data:
+                del meeting_data[session_id]
+
+            # 6. Return the saved summary
+            return JSONResponse(status_code=status_code, content=summary_data)
+
+        except Exception as api_error:
+            logger.error(f"OpenAI API error: {api_error}")
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"OpenAI API error: {str(api_error)}"}
+            )
+
+    except Exception as e:
+        logger.error(f"Error in end_meeting: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Internal server error: {str(e)}"}
+        )
 
 # Update the list transcripts endpoint to use the new module
 @hq_router.get("/meeting/transcripts")
