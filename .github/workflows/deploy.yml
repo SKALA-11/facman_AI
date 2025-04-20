@@ -36,8 +36,8 @@ jobs:
           sudo docker compose down local_system_ai
           sudo docker copmose down headquater_system_ai
 
-          sudo docker-compose up -d --build local_system_ai
-          sudo docker-compose up -d --build headquater_system_ai
+          sudo docker compose up -d --build local_system_ai
+          sudo docker compose up -d --build headquater_system_ai
 
           echo "Pruning old docker images..."
           sudo docker image prune -f
