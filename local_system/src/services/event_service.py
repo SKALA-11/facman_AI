@@ -6,6 +6,7 @@ from ..db import models as db_models
 from ..db import cruds
 from ..db import schemas as db_schemas
 from ..utils import encode_image, make_pdf, send_email
+from ..chatbot import ChatBot
 
 async def create_event_service(
     db: AsyncSession, event_data: db_schemas.EventCreate
