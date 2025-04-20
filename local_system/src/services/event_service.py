@@ -6,10 +6,9 @@ from ..db import models as db_models
 from ..db import cruds
 from ..db import schemas as db_schemas
 from ..utils import encode_image, make_pdf, send_email
-from ..chatbot import ChatBot
 
 async def create_event_service(
-    db: AsyncSession, event_data: db_schemas.EventCreateRequest
+    db: AsyncSession, event_data: db_schemas.EventCreate
 ) -> db_models.EventModel:
     """이벤트 생성 서비스 로직"""
     return await cruds.create_event(db=db, type=event_data.type, value=event_data.value)
