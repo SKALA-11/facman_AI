@@ -1,119 +1,127 @@
-from fastapi import APIRouter, UploadFile, Depends, HTTPException, Form, File
+from fastapi import APIRouter, UploadFile, Depends, HTTPException, Form, File, Body
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional, List
+
+from ..db import schemas as db_schemas
+from ..db import models as db_models
 from ..db.database import get_db
-from ..db.cruds import create_event, get_event, get_events
-from ..db.cruds import create_event_detail, get_event_detail, update_event_detail
-from ..db.cruds import (
-    create_solution,
-    get_solution,
-    update_solution,
-    update_solution_complete,
+from ..services import event_service
+
+router = APIRouter(
+    prefix="/ai/local",
+    tags=["Local AI Events"]
 )
-from typing import Optional
-from ..utils import encode_image, make_pdf, send_email
-
-router = APIRouter(prefix="/ai/local")
 
 
-@router.post("/create_event")
+@router.post(
+    "/create_event",
+    response_model=db_schemas.EventResponse,
+    summary="Create a new event"
+)
 async def create_event_router(
-    type: str, value: str, db: AsyncSession = Depends(get_db)
+    payload: db_schemas.EventCreateRequest,
+    db: AsyncSession = Depends(get_db)
 ):
-    event = await create_event(db, type, value)
+    """
+    새로운 이벤트를 생성합니다.
+
+    - **type**: 이벤트 유형 (문자열)
+    - **value**: 이벤트 내용 (문자열)
+    """
+    event = await event_service.create_event_service(db=db, event_data=payload)
     return event
 
 
-@router.get("/event/{event_id}")
+@router.get(
+    "/event/{event_id}",
+    response_model=db_schemas.EventResponse,
+    summary="Get a specific event by ID"
+)
 async def get_event_router(event_id: int, db: AsyncSession = Depends(get_db)):
-    event = await get_event(db, event_id)
-    return {"event": event}
+    """지정된 ID의 이벤트 상세 정보를 조회합니다."""
+    event = await event_service.get_event_service(db=db, event_id=event_id)
+    return event
 
 
-@router.get("/events")
+@router.get(
+    "/events",
+    response_model=db_schemas.EventsResponse,
+    summary="Get a list of events"
+)
 async def get_events_router(
     skip: Optional[int] = 0,
     limit: Optional[int] = 30,
     db: AsyncSession = Depends(get_db),
 ):
-    events = await get_events(db, skip, limit)
+    """
+    이벤트 목록을 조회합니다 (페이지네이션 지원).
+
+    - **skip**: 건너뛸 항목 수
+    - **limit**: 가져올 최대 항목 수
+    """
+    events = await event_service.get_events_service(db=db, skip=skip, limit=limit)
     return {"events": events}
 
 
-@router.post("/solve_event")
+@router.post(
+    "/solve_event",
+    response_model=db_schemas.SolveEventResponse,
+    summary="Submit solution info and get AI analysis"
+)
 async def solve_event_router(
     event_id: int = Form(...),
     image: UploadFile = File(...),
     explain: str = Form(...),
     db: AsyncSession = Depends(get_db)
 ):
-    event = await get_event(db, event_id)
-    if not event:
-        raise HTTPException(
-            status_code=404, detail=f"Event with ID {event_id} not found"
-        )
-
-    bytes_data = await image.read()
-
-    encoded_image = encode_image(bytes_data)
-    
-    event_detail = await get_event_detail(db, event_id)
-
-    if event_detail:
-        event_detail = await update_event_detail(db, event_id, encoded_image, explain)
-    else:
-        event_detail = await create_event_detail(db, event_id, encoded_image, explain)
-    
-    from ..chatbot import ChatBot
-    chatbot = ChatBot()
-    answer = chatbot.solve_event(event, encoded_image, explain)
-
-    solution = await get_solution(db, event_id)
-    if solution:
-        solution = await update_solution(db, event_id, answer)
-    else:
-        solution = await create_solution(db, event_id, answer)
-
+    """
+    이벤트 해결 정보(이미지, 설명)를 제출하고 AI 분석 결과를 받습니다.
+    (multipart/form-data 형식으로 요청)
+    """
+    answer = await event_service.solve_event_service(
+        db=db, event_id=event_id, image=image, explain=explain
+    )
     return {"event_id": event_id, "answer": answer}
 
 
-@router.post("/event_complete/{event_id}")
+@router.post(
+    "/event_complete/{event_id}",
+    response_model=db_schemas.EventCompleteResponse,
+    summary="Mark an event solution as complete"
+)
 async def event_complete_router(
-    event_id: int, complete: bool = True, db: AsyncSession = Depends(get_db)
+    event_id: int,
+    payload: db_schemas.EventCompleteRequest = Body(db_schemas.EventCompleteRequest()),
+    db: AsyncSession = Depends(get_db)
 ):
-    solution = await update_solution_complete(db, event_id, complete)
-    if not solution:
-        raise HTTPException(
-            status_code=404, detail=f"Solution with ID {event_id} not found"
-        )
-    return {"event_id": event_id, "complete": complete}
-
-
-@router.get("/download_report/{event_id}")
-async def get_event_report_router(event_id: int, email: str, db: AsyncSession = Depends(get_db)):
-    event = await get_event(db, event_id)
-    if not event:
-        raise HTTPException(
-            status_code=404, detail=f"Event with ID {event_id} not found"
-        )
-
-    event_detail = await get_event_detail(db, event_id)
-    if not event_detail:
-        raise HTTPException(
-            status_code=404, detail=f"Event detail for event ID {event_id} not found"
-        )
-
-    solution = await get_solution(db, event_id)
-    if not solution:
-        raise HTTPException(
-            status_code=404, detail=f"Solution for event ID {event_id} not found"
-        )
-        
-    from ..chatbot import ChatBot
-    chatbot = ChatBot()
-    answer = chatbot.make_report_content(
-        event, event_detail.file, event_detail.explain, solution.answer
+    """
+    특정 이벤트의 해결 상태를 완료 또는 미완료로 변경합니다.
+    기본값은 완료(True)입니다.
+    """
+    solution = await event_service.mark_event_complete_service(
+        db=db, event_id=event_id, complete=payload.complete
     )
-    
-    send_email(email, make_pdf(answer))
+    return {"event_id": solution.event_id, "complete": solution.complete}
 
-    return {"answer": answer}
+
+@router.get(
+    "/download_report/{event_id}",
+    response_model=db_schemas.ReportResponse, # 단순 메시지 또는 report_content 반환 스키마
+    summary="Generate and email a report for an event"
+)
+async def get_event_report_router(
+    event_id: int,
+    email: str, # Query parameter
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    특정 이벤트에 대한 PDF 보고서를 생성하여 지정된 이메일로 전송합니다.
+    (보고서 내용은 응답으로도 반환될 수 있음 - 스키마 정의에 따름)
+
+    - **event_id**: 보고서를 생성할 이벤트 ID
+    - **email**: 보고서를 받을 이메일 주소
+    """
+    report_content = await event_service.generate_and_send_report_service(
+        db=db, event_id=event_id, email=email
+    )
+    return {"answer": report_content}
