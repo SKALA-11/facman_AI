@@ -4,12 +4,32 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, Text, DateTime, select
+from sqlalchemy.exc import SQLAlchemyError
+import logging
 from config import DB_URL
 
+logger = logging.getLogger(__name__)
+
 # Define the log directory
-engine = create_async_engine(DB_URL)
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-Base = declarative_base()
+try:
+    engine = create_async_engine(
+        DB_URL,
+        pool_pre_ping=True,  # 연결 상태 확인
+        pool_recycle=3600,   # 1시간마다 연결 재생성
+        pool_size=5,         # 최소 연결 풀 크기
+        max_overflow=10      # 최대 연결 풀 크기
+    )
+    async_session = sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False
+    )
+    Base = declarative_base()
+except Exception as e:
+    logger.error(f"Failed to initialize database engine: {e}")
+    raise
 
 # 데이터베이스 모델 정의
 class MeetingTranscriptDB(Base):
@@ -33,52 +53,76 @@ async def generate_meeting_summary(session_id: str, title: str, content: str):
     """
     Save meeting summary to database
     """
-    async with async_session() as session:
-        try:
-            # Check if transcript exists
-            stmt = select(MeetingTranscriptDB).where(MeetingTranscriptDB.session_id == session_id)
-            result = await session.execute(stmt)
-            existing_transcript = result.scalar_one_or_none()
-            
-            if existing_transcript:
-                existing_transcript.content = content
-            else:
-                new_transcript = MeetingTranscriptDB(
-                    session_id=session_id,
-                    title=title,
-                    content=content
+    try:
+        async with async_session() as session:
+            try:
+                # session_id를 정확히 매칭하는 쿼리
+                stmt = select(MeetingTranscriptDB).where(
+                    MeetingTranscriptDB.session_id == str(session_id)
                 )
-                session.add(new_transcript)
-            
-            await session.commit()
-            return {"session_id": session_id, "title": title, "content": content}, 200
-        except Exception as e:
-            await session.rollback()
-            print(f"Database error: {e}")
-            return {"error": f"Database error: {str(e)}"}, 500
+                result = await session.execute(stmt)
+                existing_transcript = result.scalar_one_or_none()
+                
+                if existing_transcript:
+                    existing_transcript.title = title
+                    existing_transcript.content = content
+                    existing_transcript.generated_at = datetime.now()
+                else:
+                    new_transcript = MeetingTranscriptDB(
+                        session_id=str(session_id),
+                        title=title,
+                        content=content,
+                        generated_at=datetime.now()
+                    )
+                    session.add(new_transcript)
+                
+                await session.commit()
+                
+                return {
+                    "session_id": str(session_id),
+                    "title": title,
+                    "content": content,
+                    "generated_at": datetime.now().isoformat()
+                }, 200
+            except SQLAlchemyError as e:
+                logger.error(f"Database error in generate_meeting_summary: {e}")
+                await session.rollback()
+                return {"error": f"Database error: {str(e)}"}, 500
+    except Exception as e:
+        logger.error(f"Connection error in generate_meeting_summary: {e}")
+        return {"error": f"Connection error: {str(e)}"}, 502
 
 async def get_meeting_summary(session_id: str):
     """
     Get meeting summary from DB
     """
-    async with async_session() as session:
-        try:
-            stmt = select(MeetingTranscriptDB).where(MeetingTranscriptDB.session_id == session_id)
-            result = await session.execute(stmt)
-            transcript = result.scalar_one_or_none()
-            
-            if transcript:
-                return {
-                    "session_id": transcript.session_id,
-                    "title": transcript.title,
-                    "content": transcript.content,
-                    "generated_at": transcript.generated_at.isoformat()
-                }, 200
-            else:
-                return {"error": f"No summary found for session ID: {session_id}"}, 404
-        except Exception as e:
-            print(f"Database error: {e}")
-            return {"error": f"Database error: {str(e)}"}, 500
+    try:
+        async with async_session() as session:
+            try:
+                # session_id를 정확히 매칭하는 쿼리
+                stmt = select(MeetingTranscriptDB).where(
+                    MeetingTranscriptDB.session_id == str(session_id)
+                )
+                result = await session.execute(stmt)
+                transcript = result.scalar_one_or_none()
+                
+                if transcript:
+                    return {
+                        "session_id": transcript.session_id,
+                        "title": transcript.title,
+                        "content": transcript.content,
+                        "generated_at": transcript.generated_at.isoformat()
+                    }, 200
+                else:
+                    logger.warning(f"No transcript found for session_id: {session_id}")
+                    return {"error": f"No summary found for session ID: {session_id}"}, 404
+            except SQLAlchemyError as e:
+                logger.error(f"Database error in get_meeting_summary: {e}")
+                await session.rollback()
+                return {"error": f"Database error: {str(e)}"}, 500
+    except Exception as e:
+        logger.error(f"Connection error in get_meeting_summary: {e}")
+        return {"error": f"Connection error: {str(e)}"}, 502
 
 async def list_meeting_transcripts():
     """
