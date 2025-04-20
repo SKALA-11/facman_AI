@@ -1,7 +1,5 @@
 import uvicorn
 from fastapi import FastAPI
-from ..api import router
-
 
 class FacmanApplication:
     def __init__(self, host="0.0.0.0", port=8001):
@@ -10,9 +8,6 @@ class FacmanApplication:
         self.port = port
 
         self._setup_routes()
-
-    def _setup_routes(self):
-        self.app.include_router(router)
 
     def start(self):
         uvicorn.run(app=self.app, host=self.host, port=self.port)
