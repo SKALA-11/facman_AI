@@ -370,8 +370,9 @@ async def end_meeting(session_id: str, title: str = None):
         async with meeting_log_lock:
             if not meeting_log:
                 return JSONResponse(
-                    status_code=404,
-                    content={"error": "No conversation data found for this session."}
+                    status_code=200,
+                    content={"summary": "No content, 회의 발언이 없습니다."}
+                    # content={"error": "No conversation data found for this session."}
                 )
             # 대화 목록 복사
             conversation_lines = meeting_log.copy()
