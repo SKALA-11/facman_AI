@@ -6,14 +6,12 @@ from datetime import datetime
 import threading, queue, tempfile, os, io, time, asyncio, sys
 import numpy as np
 import base64
-import ffmpeg
 import logging
 from typing import Dict, List
 
 # 모듈 import
 from modules.stt import stt_processing_thread
-from modules.tts import tts_thread, generate_tts_audio
-from modules.translation import translation_thread
+from modules.tts import generate_tts_audio
 from modules.user import get_or_create_user, users_lock, users
 from modules.meeting_transcript import (
     generate_meeting_summary, 
@@ -25,9 +23,6 @@ from modules.meeting_transcript import (
 from config import CLIENT  # 필요 시 사용
 
 logger = logging.getLogger(__name__)
-
-# Global storage for meeting data
-meeting_data: Dict[str, List[Dict]] = {}  # session_id -> list of messages
 
 # 라우터 생성 및 본사 시스템용 API prefix 설정
 hq_router = APIRouter(prefix="/ai/hq")
@@ -58,24 +53,11 @@ class TTSRequest(BaseModel):
 class UpdateTranscriptTitle(BaseModel):
     title: str
 
-# 최신 결과 저장 변수
-latest_transcription = ""
-latest_translation = ""
-date_log = ""
-
 # 현재 활성 세션 ID (초기엔 None)
 session_id: str = None
 # 회의록 로그 남기기 위한 전역 저장 구조
-meeting_log: List[str] = []         # 각 entry: 포맷된 텍스트 한 줄
+meeting_log: List[str] = []          # 각 entry: 포맷된 텍스트 한 줄
 meeting_log_lock = asyncio.Lock()    # 비동기 안전을 위한 Lock
-
-# 백그라운드 작업들을 시작하는 startup 이벤트 핸들러
-# @hq_router.on_event("startup")
-# async def startup_event():
-    # 결과 전송 태스크를 메인 이벤트 루프에 스케줄링
-    # asyncio.create_task(result_sender_combined_task())
-    # asyncio.create_task(result_sender_transcription_task())
-    # asyncio.create_task(result_sender_translation_task())
 
 # 1. STT 관리 함수
 @hq_router.post("/stt/audio", response_model=CombinedResultsResponse)
@@ -121,8 +103,7 @@ async def stt_audio_endpoint(payload: STTPayload):
     # 사용자 객체의 음성 큐에 데이터를 넣음
     user.audio_queue.put((audio_np, payload.sampleRate))
     
-    # 백그라운드 STT 및 번역 처리 스레드가 실행 중이라고 가정하고,
-    # 결과가 준비되어 있다면 transcription_queue와 translated_queue에서 꺼내 결합 메시지로 생성
+    # final_results_queue로부터 전사 결과, 번역 결과 받아오는 객체 정의
     combined_results = []
     
     # 추가: 최대 timeout초동안 결과가 생성될 때까지 기다리는 예시 (polling)
@@ -163,205 +144,7 @@ async def stt_audio_endpoint(payload: STTPayload):
 
     return CombinedResultsResponse(results=combined_results)
 
-# 1-1. STT websocket
-    
-# STT WebSocket 엔드포인트 (/ai/hq/ws/stt)
-@hq_router.websocket("/ws/stt")
-async def websocket_endpoint(websocket: WebSocket):
-    global date_log
-    await websocket.accept()
-    print("[DEBUG] WebSocket 연결됨 (Base64 모드)")
-
-    # 최초 연결 시 클라이언트가 보내는 데이터에서 사용자 정보 추출
-    initial_data = await websocket.receive_json()
-    speaker_info = initial_data.get("speakerInfo", {})
-    speaker_name = speaker_info.get("name", "Unknown")
-    source_lang = speaker_info.get("speakerLang", "ko")
-    target_lang = speaker_info.get("targetLang", "en")
-    session_id = speaker_info.get("sessionId", None)  # Extract sessionId
-    
-    # 최초 접속 정보만 저장
-    time_stamp = initial_data.get("timestamp", time.time_ns() // 1_000_000)
-    
-    if not date_log:
-        time_stamp = datetime.fromtimestamp(time_stamp / 1000)
-        date_log = time_stamp.strftime("%Y%m%d_%H%M%S")
-    
-    # WebSocket 객체를 함께 전달해 사용자 객체 생성(또는 업데이트)
-    user = get_or_create_user(speaker_name, source_lang, target_lang, websocket=websocket)
-
-    # 사용자별로 STT/번역 처리 스레드 실행 (최초 연결 후 처음 데이터를 수신할 때 실행)
-    if not user.processing_started:
-        threading.Thread(
-            target=stt_processing_thread,
-            args=(user,),  # user 내부의 audio_queue 등 사용
-            daemon=True
-        ).start()
-        threading.Thread(
-            target=translation_thread,
-            args=(user,),  # 사용자별 처리 로직으로 수정
-            daemon=True
-        ).start()
-        user.processing_started = True
-
-    try:
-        # 이후 반복하면서 오디오 데이터 수신
-        while True:
-            data = await websocket.receive_json()
-            
-            # 수신 데이터의 메시지 타입이 live_audio_chunk 인 경우만 처리
-            msg_type = data.get("type")
-            if msg_type != "live_audio_chunk":
-                continue
-
-            # 여기서는 이미 사용자 정보가 있으므로 추가 획득이 필요없음
-            audio_base64 = data.get("audioData")
-            sample_rate = int(data.get("sampleRate", "16000"))  # 기본 샘플레이트 지정 가능
-            print(f"audiobase size:{audio_base64.size()}, sample rate: {sample_rate}")
-            try:
-                # Base64 디코딩 후, Int16 배열을 float32로 변환 및 모노 채널로 재배열
-                raw_bytes = base64.b64decode(audio_base64)
-                
-                audio_np = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-
-                audio_np = audio_np.reshape(-1, 1)
-
-                # 전역 큐 대신 해당 사용자 객체의 audio_queue에 데이터와 sample_rate 튜플로 넣음
-                user.audio_queue.put((audio_np, sample_rate))
-                
-            except Exception as e:
-                print(f"[DEBUG] 오디오 데이터 디코딩 오류: {e}")
-                continue
-        
-    except WebSocketDisconnect:
-        print("[DEBUG] WebSocket 연결 종료됨")
-        # 연결 종료 시 사용자 객체의 websocket 필드를 None 처리(필요에 따라 추가 정리)
-        user.websocket = None
-
-
-# 결과 전송 태스크: 각 사용자 객체의 transcription_queue와 translated_queue에 쌓인 메시지를 결합하여 해당 사용자의 웹소켓으로 전송하며,
-# 동시에 결과를 텍스트 파일로 기록합니다.
-@hq_router.get("/result")
-async def result_sender_combined_task(sessionId: str = None):
-    while True:
-        # Lock을 최소화하기 위해 사용자 리스트를 먼저 복사합니다.
-        with users_lock:
-            if sessionId:
-                # Filter users by sessionId if provided
-                current_users = [user for user in users.values() if user.session_id == sessionId]
-            else:
-                current_users = list(users.values())
-                
-        for user in current_users:
-            # 두 큐에 모두 결과가 있는지 확인합니다.
-            if not user.transcription_queue.empty() and not user.translated_queue.empty():
-                # transcription_queue에서 원문 결과를 translated_queue에서 번역 결과를 꺼냅니다.
-                transcription_tuple = user.transcription_queue.get_nowait()
-                translation_tuple = user.translated_queue.get_nowait()
-                
-                # 튜플이면 첫 번째 요소만 추출
-                transcription = transcription_tuple[0] if isinstance(transcription_tuple, tuple) else transcription_tuple
-                translation = translation_tuple[0] if isinstance(translation_tuple, tuple) else translation_tuple
-                
-                # 현재 시간 정보 추가
-                timestamp = datetime.now().isoformat()
-                
-                # 결합된 메시지 구성
-                combined_message = {
-                    "speaker": user.name,
-                    "transcription": transcription,
-                    "translation": translation,
-                    "timestamp": timestamp
-                }
-                
-                try:
-                    await user.websocket.send_json(combined_message)
-                    print(f"[DEBUG] {user.name} 결합 메시지 전송 완료: {combined_message}")
-                except Exception as ex:
-                    print(f"[DEBUG] {user.name} 결합 메시지 전송 오류: {ex}")
-                
-                user.transcription_queue.task_done()
-                user.translated_queue.task_done()
-                
-        await asyncio.sleep(1)
-
 # Update the meeting summary endpoint to use the in-memory data
-# @hq_router.post("/meeting/end/{session_id}")
-# async def end_meeting(session_id: str, title: str = None):
-#     """
-#     회의 종료 시 호출되는 엔드포인트
-#     해당 session_id의 모든 대화 내용을 가져와 회의록을 생성하고 저장
-#     """
-#     try:
-#         # 1. Gather conversation data for the session
-#         conversation = meeting_data.get(session_id, [])
-#         if not conversation:
-#             return JSONResponse(
-#                 status_code=404,
-#                 content={"error": "No conversation data found for this session."}
-#             )
-
-#         # 2. Format the transcript for summary generation
-#         formatted_transcript = "\n".join(
-#             f"{entry['speaker']}: {entry['transcription']} ({entry['translation']})"
-#             for entry in conversation
-#         )
-
-#         # 3. Generate summary using GPT-4
-#         system_prompt = """
-#         당신은 전문 회의록 요약 AI입니다.
-#         당신의 목표는 회의 내용을 분석하고 실무에 도움이 되도록 아래의 형식을 갖춘 요약을 생성하는 것입니다.
-#         결과는 간결하면서도 중요한 정보가 빠짐없이 담겨야 합니다.
-#         대화 내용을 바탕으로 구조화된 회의록을 작성해주세요.
-#         형식:
-#         1. 회의 요약 (3~5문장으로 전체 흐름을 설명)
-#         2. 핵심 논의 주제 (항목별 나열)
-#         3. 주요 결정 사항 (항목별 나열, 결정된 내용 중심)
-#         4. Action Items (항목별로 '담당자 - 할 일 - 기한' 형식)
-
-#         회의 내용:
-#         {formatted_transcript}
-#         """
-
-#         try:
-#             response = await CLIENT.chat.completions.create(
-#                 model="gpt-4",
-#                 messages=[
-#                     {"role": "system", "content": system_prompt},
-#                     {"role": "user", "content": formatted_transcript}
-#                 ]
-#             )
-#             summary_content = response.choices[0].message.content
-
-#             # 4. Save the summary to the DB
-#             meeting_title = title or f"Meeting {session_id}"
-#             summary_data, status_code = await generate_meeting_summary(
-#                 session_id=session_id,
-#                 title=meeting_title,
-#                 content=summary_content
-#             )
-
-#             # 5. Clear the session data
-#             if session_id in meeting_data:
-#                 del meeting_data[session_id]
-
-#             # 6. Return the saved summary
-#             return JSONResponse(status_code=status_code, content=summary_data)
-
-#         except Exception as api_error:
-#             logger.error(f"OpenAI API error: {api_error}")
-#             return JSONResponse(
-#                 status_code=500,
-#                 content={"error": f"OpenAI API error: {str(api_error)}"}
-#             )
-
-#     except Exception as e:
-#         logger.error(f"Error in end_meeting: {str(e)}")
-#         return JSONResponse(
-#             status_code=500,
-#             content={"error": f"Internal server error: {str(e)}"}
-#         )
-
 @hq_router.post("/meeting/end/{session_id}")
 async def end_meeting(session_id: str, title: str = None):
     """
@@ -384,9 +167,8 @@ async def end_meeting(session_id: str, title: str = None):
                 logger.info(f"[/meeting/end] Session {session_id}: Global meeting_log is empty. Returning 'No content'.")
                 # ---------------
                 return JSONResponse(
-                    status_code=200,
-                    content={"summary": "No content, 회의 발언이 없습니다."}
-                    # content={"error": "No conversation data found for this session."}
+                    status_code=404,
+                    content={"error": "No conversation data found for this session."}
                 )
             # 대화 목록 복사
             conversation_lines = meeting_log.copy()
@@ -446,7 +228,6 @@ async def end_meeting(session_id: str, title: str = None):
             content={"error": f"Internal server error: {str(e)}"}
         )
 
-
 # Update the list transcripts endpoint to use the new module
 @hq_router.get("/meeting/transcripts")
 async def api_list_meeting_transcripts():
@@ -471,22 +252,6 @@ async def api_delete_meeting_transcript(session_id: str):
     logger.info(f"[/delete] Received request to delete transcript for session_id: {session_id}")
     result, status_code = await delete_meeting_summary(session_id)
     return JSONResponse(status_code=status_code, content=result)
-
-
-# 2. STT 전사 결과 반환
-@hq_router.get("/transcription")
-async def get_transcription():
-    global latest_transcription
-    if not latest_transcription:
-        print("[DEBUG] 최신 변환 결과가 없습니다.")
-        return JSONResponse({"text": "No transcription available yet."})
-    print(f"[DEBUG] 최신 변환 결과 반환: {latest_transcription}")
-    return JSONResponse({"text": latest_transcription})
-
-# 3. 번역 결과 반환 API
-@hq_router.get("/translation")
-async def get_translation():
-    return JSONResponse({"text": latest_translation})
 
 # 4. TTS 결과 반환 API
 @hq_router.post(

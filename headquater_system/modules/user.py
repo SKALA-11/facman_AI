@@ -16,13 +16,8 @@ class User:
         self.detected_language = source_lang  # 개별 감지 언어
         self.processing_started = False  # 처리 스레드 실행 여부
 
-        # 사용자 전용 큐들
-        self.audio_queue = queue.Queue()
-        self.sentence_queue = queue.Queue()
-        self.transcription_queue = queue.Queue()
-        self.translation_queue = queue.Queue()
-        self.translated_queue = queue.Queue()
-        
+        # 사용자 전용 큐
+        self.audio_queue = queue.Queue()        
         self.final_results_queue = queue.Queue()
 
         self.websocket = None
