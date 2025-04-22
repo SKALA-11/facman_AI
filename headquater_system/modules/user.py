@@ -4,7 +4,6 @@ import threading
 import time
 import queue
 
-# 사용자 정보를 담는 클래스 정의
 class User:
     def __init__(self, name: str, source_lang: str = "ko", target_lang: str = "en", session_id: str = None):
         self.name = name
