@@ -418,7 +418,7 @@ async def end_meeting(session_id: str, title: str = None):
 """
 
         # 4) OpenAI API 호출
-        response = await CLIENT.chat.completions.create(
+        response = CLIENT.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
