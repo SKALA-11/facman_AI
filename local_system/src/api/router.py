@@ -1,3 +1,19 @@
+#-----------------------------------------------------------------------------------------#
+# [ 파일 개요 ]
+# 이 파일은 FastAPI의 APIRouter를 사용하여 '/ai/local' 경로 아래에 로컬 AI 이벤트 관련 API 엔드포인트들을 정의합니다.
+# 각 엔드포인트는 특정 HTTP 메소드(POST, GET)와 경로에 매핑되며, 관련된 서비스 함수(event_service)를 호출하여 비즈니스 로직을 처리합니다.
+# 데이터베이스 세션 관리는 `Depends(get_db)`를 통해 이루어집니다.
+
+# [ 주요 기능 (API 엔드포인트) ]
+# 1. POST /create_event: 새로운 이벤트를 생성합니다. (event_service.create_event_service 호출)
+# 2. GET /event/{event_id}: 특정 ID의 이벤트 상세 정보를 조회합니다. (event_service.get_event_service 호출)
+# 3. GET /events: 이벤트 목록을 페이지네이션하여 조회합니다. (event_service.get_events_service 호출)
+# 4. POST /solve_event: 이벤트 해결 정보(이미지, 설명)를 받아 처리하고 AI 분석 결과를 반환합니다. (event_service.solve_event_service 호출)
+# 5. POST /event_complete/{event_id}: 이벤트 해결 상태를 완료/미완료로 변경합니다. (event_service.mark_event_complete_service 호출)
+# 6. GET /download_report/{event_id}: 이벤트 보고서를 생성하여 지정된 이메일로 전송합니다. (event_service.generate_and_send_report_service 호출)
+#-----------------------------------------------------------------------------------------#
+
+
 from fastapi import APIRouter, UploadFile, Depends, HTTPException, Form, File, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
@@ -111,7 +127,7 @@ async def event_complete_router(
 )
 async def get_event_report_router(
     event_id: int,
-    email: str, # Query parameter
+    email: str, 
     db: AsyncSession = Depends(get_db)
 ):
     """
