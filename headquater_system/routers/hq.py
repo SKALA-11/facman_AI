@@ -19,7 +19,8 @@ from modules.meeting_transcript import (
     generate_meeting_summary, 
     list_meeting_transcripts, 
     get_meeting_summary,
-    update_meeting_title
+    update_meeting_title,
+    delete_meeting_summary
 )
 from config import CLIENT  # 필요 시 사용
 
@@ -463,6 +464,14 @@ async def api_get_meeting_transcript(session_id: str):
 async def update_meeting_title_endpoint(session_id: str, title: UpdateTranscriptTitle):
     result, status_code = await update_meeting_title(session_id, title.title)
     return JSONResponse(status_code=status_code, content=result)
+
+@hq_router.delete("/meeting/transcript/{session_id}")
+async def api_delete_meeting_transcript(session_id: str):
+    """지정된 세션 ID의 회의록 요약을 삭제합니다."""
+    logger.info(f"[/delete] Received request to delete transcript for session_id: {session_id}")
+    result, status_code = await delete_meeting_summary(session_id)
+    return JSONResponse(status_code=status_code, content=result)
+
 
 # 2. STT 전사 결과 반환
 @hq_router.get("/transcription")
