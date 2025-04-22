@@ -149,14 +149,16 @@ async def stt_audio_endpoint(payload: STTPayload):
             await asyncio.sleep(poll_interval)
             waited += poll_interval
 
-    # 결과를 meeting_data에 저장
+    # 결과를 meeting_log에 저장
     if combined_results:
         new_lines = [
             f"{e['speaker']}: {e['transcription']} ({e['translation']})"
             for e in combined_results
-            ]
+        ]
+        logger.info(f"[/stt/audio] Session {session_id}: Preparing to add {len(new_lines)} line(s) to meeting_log: {new_lines}")
         async with meeting_log_lock:
                 meeting_log.extend(new_lines)
+                logger.info(f"[/stt/audio] Session {session_id}: Lines added. Global meeting_log size: {len(meeting_log)}")
 
     return CombinedResultsResponse(results=combined_results)
 
@@ -367,8 +369,19 @@ async def end_meeting(session_id: str, title: str = None):
     """
     try:
         # 1) 로그를 안전하게 추출 & 초기화
+        # --- 로깅 추가 ---
+        logger.info(f"[/meeting/end] Endpoint called for session_id: {session_id}")
+        # ---------------
         async with meeting_log_lock:
+            # --- 로깅 추가 ---
+            logger.info(f"[/meeting/end] Session {session_id}: Inside lock. Current global meeting_log size: {len(meeting_log)}")
+            if meeting_log:
+                logger.debug(f"[/meeting/end] Session {session_id}: First 3 log entries: {meeting_log[:3]}")
+            # ---------------
             if not meeting_log:
+                # --- 로깅 추가 ---
+                logger.info(f"[/meeting/end] Session {session_id}: Global meeting_log is empty. Returning 'No content'.")
+                # ---------------
                 return JSONResponse(
                     status_code=200,
                     content={"summary": "No content, 회의 발언이 없습니다."}
@@ -376,8 +389,14 @@ async def end_meeting(session_id: str, title: str = None):
                 )
             # 대화 목록 복사
             conversation_lines = meeting_log.copy()
+            # --- 로깅 추가 ---
+            logger.info(f"[/meeting/end] Session {session_id}: Copied {len(conversation_lines)} lines from global meeting_log.")
+            # ---------------
             # 전역 로그 비우기
             meeting_log.clear()
+            # --- 로깅 추가 ---
+            logger.info(f"[/meeting/end] Session {session_id}: Global meeting_log cleared.")
+            # ---------------
 
         # 2) 포맷팅: 이미 "화자: 발화 (번역)" 형식이므로 그냥 줄바꿈으로 합칩니다.
         formatted_transcript = "\n".join(conversation_lines)
