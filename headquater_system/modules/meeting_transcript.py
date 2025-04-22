@@ -1,4 +1,3 @@
-# modules/meeting_transcript.py
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -10,7 +9,6 @@ from config import DB_URL
 
 logger = logging.getLogger(__name__)
 
-# Define the log directory
 try:
     engine = create_async_engine(
         DB_URL,
@@ -166,6 +164,31 @@ async def update_meeting_title(session_id: str, new_title: str):
             await session.rollback()
             print(f"Database error: {e}")
             return {"error": f"Database error: {str(e)}"}, 500
+
+async def delete_meeting_summary(session_id: str):
+    try:
+        async with async_session() as session:
+            try:
+                stmt = select(MeetingTranscriptDB).where(MeetingTranscriptDB.session_id == session_id)
+                result = await session.execute(stmt)
+                transcript = result.scalar_one_or_none()
+
+                if not transcript:
+                    logger.warning(f"Attempted to delete non-existent summary for session_id: {session_id}")
+                    return {"error": f"ID '{session_id}'에 해당하는 회의록을 찾을 수 없습니다."}, 404
+
+                await session.delete(transcript)
+                await session.commit()
+
+                logger.info(f"Successfully deleted meeting summary for session_id: {session_id}")
+                return {"message": f"회의록(ID: {session_id})이 성공적으로 삭제되었습니다."}, 200
+            except SQLAlchemyError as e:
+                logger.error(f"Database error while deleting summary for session_id {session_id}: {e}", exc_info=True)
+                await session.rollback()
+                return {"error": f"데이터베이스 오류 발생: {str(e)}"}, 500
+    except Exception as e:
+        logger.error(f"Connection error in delete_meeting_summary: {e}")
+        return {"error": f"Connection error: {str(e)}"}, 502
 
 # 테이블 생성 함수
 async def create_tables():
