@@ -62,6 +62,8 @@ def send_email(email, data):
 
     msg.add_attachment(data, maintype='application', subtype='pdf', filename='document.pdf')
 
-    with smtplib.SMTP_SSL('smtp.naver.com', 587) as smtp:
+
+        
+    with smtplib.SMTP_SSL('smtp.naver.com', 465) as smtp:
         smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
         smtp.send_message(msg)
