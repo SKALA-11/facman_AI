@@ -29,7 +29,7 @@ app.add_middleware(
 )
 
 # /tts 경로로 TTS_DIR 디렉터리(static files)를 서빙합니다
-app.mount("/tts", StaticFiles(directory=str(TTS_DIR)), name="tts")
+app.mount("/ai/hq/tts", StaticFiles(directory=str(TTS_DIR)), name="tts")
 
 # HQ API 라우터 포함 (프리픽스: /ai/hq/api)
 app.include_router(hq_router)
