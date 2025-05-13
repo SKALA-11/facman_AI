@@ -101,8 +101,7 @@ def stt_processing(user, data, sample_rate):
 
 def stt_processing_thread(user):
     """
-    사용자 객체의 audio_queue에서 오디오 데이터를 읽어 STT 처리를 수행하고,
-    결과를 user.sentence_queue와 user.transcription_queue에 넣습니다.
+    사용자 객체의 audio_queue에서 오디오 데이터를 읽어 STT - 번역 - TTS를 차례대로 수행합니다.
     """
 
     while True:
@@ -132,11 +131,6 @@ def stt_processing_thread(user):
                 if text.strip().lower().startswith("please transcribe exactly what you hear"):
                     print(f"[DEBUG] {user.name} - 에러 프롬프트 감지, 스킵")
                     continue
-
-                # 전사 결과를 tuple로 묶음
-                # user.sentence_queue.put((text, src_lang))
-                # user.transcription_queue.put((text, src_lang))
-                # transcription_result = (speaker_info, text)
                 
                 try:
                     translation = translation_process(user, text)
