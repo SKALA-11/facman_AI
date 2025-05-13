@@ -121,7 +121,8 @@ async def stt_audio_endpoint(payload: STTPayload):
                 "speaker": speaker_name,
                 "transcription": transcription,
                 "translation": translation,
-                "tts_voice": tts_voice
+                # "tts_voice": tts_voice,
+                "tts_voice": f"/tts/{tts_voice}.mp3"
             })
             user.final_results_queue.task_done()
 
