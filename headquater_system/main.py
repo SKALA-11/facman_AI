@@ -1,6 +1,9 @@
 # main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from modules.tts import TTS_DIR
+from fastapi.staticfiles import StaticFiles
+
 import logging
 import uvicorn
 
@@ -25,10 +28,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# /tts 경로로 TTS_DIR 디렉터리(static files)를 서빙합니다
+app.mount("/tts", StaticFiles(directory=str(TTS_DIR)), name="tts")
+
 # HQ API 라우터 포함 (프리픽스: /ai/hq/api)
 app.include_router(hq_router)
 
 if __name__ == "__main__":
-    import uvicorn
     # uvicorn.run(app, host="https://facman.duckdns.org", port=8002)
     uvicorn.run(app, host="0.0.0.0", port=8002)
