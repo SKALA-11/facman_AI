@@ -1,3 +1,7 @@
+langchain-huggingface>=0.0.3 
+sentence-transformers>=2.2.0 
+torch>=2.0.0 # PyTorch 
+transformers>=4.30.0 
 aiohappyeyeballs==2.6.1
 aiohttp==3.11.16
 aiomysql==0.2.0
