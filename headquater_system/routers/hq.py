@@ -3,15 +3,17 @@ from fastapi import APIRouter, HTTPException, Body, WebSocket, WebSocketDisconne
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from datetime import datetime
+
 import threading, queue, tempfile, os, io, time, asyncio, sys
 import numpy as np
 import base64
 import logging
+
 from typing import Dict, List
 
 # 모듈 import
 from modules.stt import stt_processing_thread
-from modules.tts import generate_tts_audio
+from modules.tts import TTS_DIR
 from modules.user import get_or_create_user, users_lock, users
 from modules.meeting_transcript import (
     generate_meeting_summary, 
@@ -45,11 +47,6 @@ class CombinedResult(BaseModel):
 class CombinedResultsResponse(BaseModel):
     results: list[CombinedResult]
     
-class TTSRequest(BaseModel):
-    text: str = Field(..., description="음성으로 변환할 텍스트", example="안녕하세요, FacMan 시스템입니다.")
-    voice: str = Field("nova", description="사용할 음성 (예: 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer')", example="nova")
-    model: str = Field("tts-1", description="사용할 TTS 모델 (예: 'tts-1', 'tts-1-hd')", example="tts-1")
-
 class UpdateTranscriptTitle(BaseModel):
     title: str
 
@@ -58,6 +55,8 @@ session_id: str = None
 # 회의록 로그 남기기 위한 전역 저장 구조
 meeting_log: List[str] = []          # 각 entry: 포맷된 텍스트 한 줄
 meeting_log_lock = asyncio.Lock()    # 비동기 안전을 위한 Lock
+tts_voice_log: List[str] = []
+tts_voice_lock = asyncio.Lock()
 
 # 1. STT 관리 함수
 @hq_router.post("/stt/audio", response_model=CombinedResultsResponse)
@@ -121,10 +120,13 @@ async def stt_audio_endpoint(payload: STTPayload):
                 "speaker": speaker_name,
                 "transcription": transcription,
                 "translation": translation,
-                # "tts_voice": tts_voice,
                 "tts_voice": f"/tts/{tts_voice}.mp3"
             })
             user.final_results_queue.task_done()
+
+            # STT 엔드포인트: 파일 ID 저장
+            async with tts_voice_lock:
+                tts_voice_log.append(tts_voice)
 
             break  # 결과를 받았으므로 종료
         except queue.Empty:
@@ -140,8 +142,8 @@ async def stt_audio_endpoint(payload: STTPayload):
         ]
         logger.info(f"[/stt/audio] Session {session_id}: Preparing to add {len(new_lines)} line(s) to meeting_log: {new_lines}")
         async with meeting_log_lock:
-                meeting_log.extend(new_lines)
-                logger.info(f"[/stt/audio] Session {session_id}: Lines added. Global meeting_log size: {len(meeting_log)}")
+            meeting_log.extend(new_lines)
+            logger.info(f"[/stt/audio] Session {session_id}: Lines added. Global meeting_log size: {len(meeting_log)}")
 
     return CombinedResultsResponse(results=combined_results)
 
@@ -200,10 +202,9 @@ async def end_meeting(session_id: str, title: str = None):
 회의 내용:
 {formatted_transcript}
 """
-
         # 4) OpenAI API 호출
         response = CLIENT.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": formatted_transcript}
@@ -219,6 +220,20 @@ async def end_meeting(session_id: str, title: str = None):
             content=summary_content
         )
 
+        # 종료 핸들러: 삭제할 ID 복사 & 초기화
+        async with tts_voice_lock:
+            files_to_delete = list(tts_voice_log)
+            tts_voice_log.clear()
+
+        for file_id in files_to_delete:
+            path = TTS_DIR / f"{file_id}.mp3"
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                logger.warning(f"[TTS Cleanup] File not found: {path}")
+            except Exception as e:
+                logger.error(f"[TTS Cleanup] Failed to delete {path}: {e}")
+                
         # 6) 저장된 요약 리턴
         return JSONResponse(status_code=status_code, content=summary_data)
 
@@ -253,37 +268,3 @@ async def api_delete_meeting_transcript(session_id: str):
     logger.info(f"[/delete] Received request to delete transcript for session_id: {session_id}")
     result, status_code = await delete_meeting_summary(session_id)
     return JSONResponse(status_code=status_code, content=result)
-
-# 4. TTS 결과 반환 API
-@hq_router.post(
-    "/tts",
-    response_class=StreamingResponse, # 응답 타입을 StreamingResponse로 명시
-    summary="텍스트 음성 변환 (MP3)",
-    description="입력된 텍스트를 지정된 목소리와 모델을 사용하여 MP3 오디오 스트림으로 변환하여 반환합니다.",
-    responses={
-        200: {"content": {"audio/mpeg": {}}, "description": "성공적으로 MP3 오디오 스트림 반환"},
-        400: {"description": "잘못된 요청 (예: 텍스트 누락)"},
-        500: {"description": "서버 내부 오류 (TTS 생성 실패 등)"}
-    }
-)
-async def tts_api(request: TTSRequest = Body(...)):
-    """
-    FastAPI 엔드포인트: 텍스트를 받아 MP3 오디오 스트림을 생성합니다.
-    """
-    try:
-        logger.info(f"/ai/hq/tts 요청 수신: Text='{request.text[:50]}...', Voice={request.voice}, Model={request.model}")
-        audio_bytes = generate_tts_audio(request.text, request.voice, request.model)
-        logger.info(f"오디오 데이터 생성 완료 ({len(audio_bytes)} bytes)")
-
-        # 생성된 오디오 바이트를 스트리밍 응답으로 반환
-        return StreamingResponse(io.BytesIO(audio_bytes), media_type="audio/mpeg")
-
-    except ValueError as ve:
-        logger.warning(f"TTS 요청 오류 (400): {ve}")
-        raise HTTPException(status_code=400, detail=str(ve))
-    except RuntimeError as re:
-        logger.error(f"TTS 생성 서버 오류 (500): {re}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"TTS 오디오 생성 실패: {str(re)}")
-    except Exception as e:
-        logger.exception(f"/ai/hq/tts 엔드포인트 처리 중 예외 발생: {e}")
-        raise HTTPException(status_code=500, detail=f"서버 내부 오류 발생: {str(e)}")
