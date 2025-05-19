@@ -11,6 +11,7 @@ language_map = {
     "de": "독일어",
     "ru": "러시아어",
     "vi": "베트남어",
+    "hu": "헝가리어",
 }
 
 # 풀네임 또는 한글명 -> ISO-639-1 코드 보정을 위한 alias
@@ -24,6 +25,7 @@ language_aliases = {
     "german": "de",
     "russian": "ru",
     "vietnamese": "vi",
+    "hungarian": "hu",
     "영어": "en",
     "한국어": "ko",
     "일본어": "ja",
@@ -32,7 +34,8 @@ language_aliases = {
     "프랑스어": "fr",
     "독일어": "de",
     "러시아어": "ru",
-    "베트남어": "vi"
+    "베트남어": "vi",
+    "헝가리어": "hu",
 }
 
 def sanitize_language_code(lang):
